@@ -12,3 +12,8 @@ footage-unused/
 
 # Synthesized sound layers; regenerate with scripts/make-film-audio.sh
 public/film/audio/*.wav
+
+# Team camera clips (people on camera, large); kept local
+public/team/*.mp4
+public/team/vo/*.wav
+public/team/vo/*.mp3
