@@ -823,10 +823,10 @@ export function createHeroScene(canvas, { sites, dom, onArrive, textures = {}, q
       flight.site = landP;
       // landed size: small against the planet (it read as tall as a moon at 0.14 R); the camera
       // comes closer instead, so the rocket still fills a good part of the frame
-      const s1 = L.marsR * 0.05;
+      const s1 = L.marsR * 0.03;
       const desc = clamp01((T - 0.35) / 1.75);
       const e = 1 - Math.pow(1 - desc, 3); // fast from orbit, slow over the ground
-      hover.copy(landP).addScaledVector(landN, L.marsR * 0.14); // low enough to stay in frame
+      hover.copy(landP).addScaledVector(landN, L.marsR * 0.09); // low enough to stay in frame
       landEnd.copy(landP).addScaledVector(landN, s1 * 0.5);
       rocketPos.copy(flight.from).multiplyScalar((1 - e) * (1 - e))
         .addScaledVector(hover, 2 * (1 - e) * e)
@@ -883,7 +883,7 @@ export function createHeroScene(canvas, { sites, dom, onArrive, textures = {}, q
       // camera low over the ground, 'south' of the site, so the rocket stands upright on screen
       // with the curved horizon behind it
       camDir.lerp(v.copy(landN).multiplyScalar(0.62).addScaledVector(Y, -0.75).add(w3.set(0.22, 0, 0)).normalize(), zoom).normalize();
-      dist = lerp(dist, L.marsR * 0.34, zoom);
+      dist = lerp(dist, L.marsR * 0.26, zoom);
       if (T > LAND_T || reduced) {
         const id = flight.id;
         flight = null;
