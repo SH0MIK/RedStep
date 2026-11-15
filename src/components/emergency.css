@@ -1,3 +1,6 @@
+/* Emergency panel: slides in from the right (from the bottom on phones). It leads with
+   "What happened?" as big icon cards, then the Air → Pressure → Heat → Power order as a
+   strip with this emergency's first job lit, then the steps as a checklist to tick off. */
 .sos {
   position: fixed;
   inset: 0;
@@ -12,9 +15,9 @@
 .sos-scrim {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.62);
   opacity: 0;
-  transition: opacity var(--d-panel) var(--ease);
+  transition: opacity 260ms var(--ease);
 }
 
 .sos-open .sos-scrim {
@@ -26,13 +29,16 @@
   top: 0;
   right: 0;
   bottom: 0;
-  width: min(480px, 100vw);
+  width: min(460px, 100vw);
   overflow-y: auto;
-  padding: var(--s-5) var(--s-6) var(--s-6);
-  background: #07090e;
-  border-left: 1px solid var(--rule);
+  overscroll-behavior: contain;
+  padding: 18px 22px calc(24px + env(safe-area-inset-bottom, 0px));
+  background:
+    radial-gradient(120% 40% at 100% 0%, rgba(208, 96, 47, 0.16), transparent 60%),
+    #0b0908;
+  border-left: 1px solid rgba(227, 137, 90, 0.18);
   transform: translateX(100%);
-  transition: transform var(--d-panel) var(--ease);
+  transition: transform 320ms cubic-bezier(0.2, 0.8, 0.2, 1);
   outline: none;
 }
 
@@ -40,128 +46,303 @@
   transform: none;
 }
 
+/* ---- header ---- */
 .sos-head {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: 10px;
+  min-height: 44px;
+}
+
+.sos-beacon {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #ff6a4d;
+  box-shadow: 0 0 0 0 rgba(255, 106, 77, 0.6);
+  animation: sos-beacon 1.8s ease-out infinite;
+}
+
+@keyframes sos-beacon {
+  70%, 100% { box-shadow: 0 0 0 9px rgba(255, 106, 77, 0); }
 }
 
 .sos-kicker {
-  color: var(--nogo);
+  flex: 1;
+  margin: 0;
+  font: 700 12px / 1 var(--font);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #ff8a70;
 }
 
 .sos-close {
-  width: 44px;
-  height: 44px;
-  margin-right: -12px;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  margin-right: -6px;
   border: 0;
-  background: none;
-  font-size: 28px;
-  line-height: 1;
-  color: var(--ink-2);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.sos-close:hover {
+  background: rgba(255, 255, 255, 0.13);
 }
 
 .sos-title {
-  font-size: var(--t-3);
-  margin: var(--s-3) 0 var(--s-5);
+  margin: 14px 0 12px;
+  font: 700 26px / 1.1 var(--font-head);
+  letter-spacing: -0.01em;
 }
 
-.sos-order {
-  list-style: none;
-  padding: 0;
+/* ---- what happened: icon cards ---- */
+.sos-pick {
   display: grid;
-  gap: 0;
-  border-top: 1px solid var(--rule);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.sos-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 56px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--ink-2);
+  font: 600 14px / 1.25 var(--font);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+
+.sos-card svg {
+  flex: none;
+  color: #e3895a;
+}
+
+.sos-card:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--ink);
+}
+
+.sos-card[aria-selected='true'] {
+  border-color: #d0602f;
+  background: rgba(208, 96, 47, 0.18);
+  color: #fff;
+}
+
+.sos-card[aria-selected='true'] svg {
+  color: #ffb08c;
+}
+
+.sos-pick > :last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+
+/* ---- the order: a strip with this emergency's first job lit ---- */
+.sos-order {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  margin: 18px 0 8px;
+  padding: 4px;
+  list-style: none;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .sos-order li {
-  display: grid;
-  grid-template-columns: 28px 96px 1fr;
-  align-items: baseline;
-  gap: var(--s-3);
-  padding: 14px 0;
-  border-bottom: 1px solid var(--rule-soft);
-  font-size: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 8px 2px;
+  border-radius: 10px;
+  font: 600 13px / 1.1 var(--font);
   color: var(--ink-3);
 }
 
-.sos-order b {
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--ink);
-  letter-spacing: -0.02em;
+.sos-order-n {
+  font-size: 11px;
+  opacity: 0.8;
 }
 
-.sos-order li.hot b,
-.sos-order li.hot .mono {
-  color: var(--nogo);
+.sos-order li.hot {
+  background: #d0602f;
+  color: #fff;
 }
 
-.sos-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: var(--s-6) 0 var(--s-4);
-}
-
-.sos-tabs button {
-  min-height: 36px;
-  padding: 0 14px;
-  border-radius: var(--r-pill);
-  border: 1px solid var(--rule);
-  background: none;
-  font-size: 13px;
+.sos-first {
+  margin: 0 0 18px;
+  font-size: 14px;
+  line-height: 1.5;
   color: var(--ink-2);
 }
 
-.sos-tabs button[aria-selected='true'] {
-  border-color: var(--nogo);
+.sos-first b {
   color: var(--ink);
-  background: rgba(255, 141, 122, 0.1);
+}
+
+/* ---- do this now: a checklist ---- */
+.sos-label {
+  display: flex;
+  justify-content: space-between;
+  margin: 0 0 8px;
+  font: 700 12px / 1 var(--font);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.sos-label span {
+  letter-spacing: 0;
+  color: var(--ink-2);
 }
 
 .sos-steps {
-  padding-left: 20px;
   display: grid;
-  gap: 8px;
-  font-size: 16px;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
-.sos-steps li::marker {
-  font-family: var(--mono);
-  color: var(--nogo);
+.sos-steps button {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  min-height: 52px;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--ink);
+  font: 500 15.5px / 1.4 var(--font);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 160ms ease, opacity 160ms ease;
+}
+
+.sos-step-n {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1.5px solid #e3895a;
+  color: #e3895a;
+  font: 700 13px / 1 var(--font);
+}
+
+.sos-steps button[aria-pressed='true'] {
+  opacity: 0.55;
+}
+
+.sos-steps button[aria-pressed='true'] .sos-step-n {
+  border-color: #7fe0a8;
+  background: #7fe0a8;
+  color: #0b0908;
+}
+
+.sos-steps button[aria-pressed='true'] > span:last-child {
+  text-decoration: line-through;
+  text-decoration-color: rgba(255, 255, 255, 0.35);
 }
 
 .sos-proc {
-  margin-top: var(--s-3);
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--ink-3);
 }
 
 .sos-case {
-  margin-top: var(--s-5);
-  padding: var(--s-4);
-  border-radius: var(--r-2);
-  background: rgba(127, 176, 255, 0.06);
-  border: 1px solid rgba(127, 176, 255, 0.18);
+  margin-top: 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.sos-case summary {
+  display: flex;
+  align-items: center;
+  min-height: 46px;
+  padding: 0 14px;
+  font: 600 14px / 1.2 var(--font);
+  cursor: pointer;
+  list-style: none;
+}
+
+.sos-case summary::-webkit-details-marker { display: none; }
+
+.sos-case summary::after {
+  content: '+';
+  margin-left: auto;
+  font-size: 18px;
+  color: var(--ink-3);
+}
+
+.sos-case[open] summary::after {
+  content: '−';
+}
+
+.sos-case p {
+  margin: 0;
+  padding: 0 14px 14px;
   font-size: 14px;
+  line-height: 1.55;
   color: var(--ink-2);
 }
 
-.sos-case .micro {
-  display: flex;
-  align-items: center;
-  color: var(--ice);
-  margin-bottom: 6px;
-}
-
 .sos-drill {
-  margin-top: var(--s-5);
+  width: 100%;
+  margin-top: 18px;
 }
 
-@media (max-width: 520px) {
+/* ---- phones: a sheet from the bottom, full width ---- */
+@media (max-width: 600px) {
   .sos-panel {
-    padding: var(--s-4) var(--s-4) var(--s-6);
+    top: auto;
+    left: 0;
+    width: 100%;
+    max-height: 92svh;
+    padding: 10px 16px calc(20px + env(safe-area-inset-bottom, 0px));
+    border-left: 0;
+    border-top: 1px solid rgba(227, 137, 90, 0.22);
+    border-radius: 22px 22px 0 0;
+    transform: translateY(100%);
   }
-  .sos-order li {
-    grid-template-columns: 22px 80px 1fr;
+
+  .sos-panel::before {
+    content: '';
+    display: block;
+    width: 38px;
+    height: 4px;
+    margin: 0 auto 6px;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.22);
   }
+
+  .sos-title {
+    margin: 8px 0 10px;
+    font-size: 22px;
+  }
+
+  .sos-card {
+    min-height: 52px;
+    font-size: 13.5px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sos-panel,
+  .sos-scrim { transition: none; }
+  .sos-beacon { animation: none; }
 }
