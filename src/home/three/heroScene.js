@@ -476,7 +476,7 @@ export function createHeroScene(canvas, { sites, dom, onArrive, textures = {}, q
     // Where the camera keeps the rocket while following it: right of centre on wide screens
     // (the story panels sit on the left), in the upper half on tall ones (panels at the bottom),
     // so the panels never cover the rocket.
-    L.chase = aspect > 1 ? new THREE.Vector3(-0.7, 0.25, 0) : new THREE.Vector3(0.5, -1.3, 0);
+    L.chase = aspect > 1 ? new THREE.Vector3(-0.7, 0.55, 0) : new THREE.Vector3(0.5, -1.3, 0);
     const e = A.earth;
     const mo = A.moon;
     const ma = A.mars;
@@ -533,11 +533,11 @@ export function createHeroScene(canvas, { sites, dom, onArrive, textures = {}, q
     const p0 = earth.position.clone().add(L.rocketPos0.clone().sub(earth.position).normalize().multiplyScalar(L.earthR * 1.01));
     const p1 = L.rocketPos0.clone();
     // first leg: up along its heading and away from the camera, so it recedes as you scroll
-    const p2 = L.rocketPos0.clone().addScaledVector(dir, L.rocketLen * 2.2).add(new THREE.Vector3(0.4, 0.5, -3.2));
+    const p2 = L.rocketPos0.clone().addScaledVector(dir, L.rocketLen * 1.5).add(new THREE.Vector3(1.1, 0.05, -1.8));
     // final approach toward the camera side of Mars, and one gentle arc between: no S-bends
     // (the old cruise point pulled the path sideways and back, so the rocket swung twice)
     const p4 = entry.clone().add(new THREE.Vector3(-1.0, 0.25, 0.6).multiplyScalar(L.marsR));
-    const p3 = p2.clone().lerp(p4, 0.5).add(new THREE.Vector3(0, 0.6, 0));
+    const p3 = p2.clone().lerp(p4, 0.5).add(new THREE.Vector3(0, 0.3, 0));
     const pts = [p0, p1, p2, p3, p4, entry];
     L.curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal');
     // The rocket moves by distance travelled (getPointAt), so its speed is even along the whole
@@ -854,7 +854,7 @@ export function createHeroScene(canvas, { sites, dom, onArrive, textures = {}, q
     let rScale = L.rocketLen * lerp(1, 0.17, smoothstep(0.04, 0.75, p)) * lerp(0.18, 1, launch);
     // steady heading: ease toward the path direction instead of snapping each frame
     if (reduced || !qSmoothSet) { qSmooth.copy(qFlight); qSmoothSet = true; }
-    else qSmooth.slerp(qFlight, 1 - Math.exp(-dt * 6));
+    else qSmooth.slerp(qFlight, 1 - Math.exp(-dt * 3.5));
     rig.group.quaternion.copy(qSmooth);
 
     /* ---- Landing on the chosen site: de-orbit, flip tail-first, braking burn, touchdown ---- */
@@ -934,7 +934,7 @@ export function createHeroScene(canvas, { sites, dom, onArrive, textures = {}, q
     /* ---- Camera ---- */
     // the camera holds back while the rocket climbs away, then follows it out toward Mars
     // (it used to dolly in at once, so the rocket ballooned and swung toward the viewer)
-    const chase = smoothstep(0.12, 0.55, p);
+    const chase = smoothstep(0.04, 0.45, p);
     tgt.set(0, 0, 0).lerp(w3.copy(rocketPos).add(L.chase), chase * 0.85);
     camDir.set(0, 0, 1).lerp(v.set(0.42, 0.14, 1), smoothstep(0.15, 0.6, p) * (1 - arrive)).normalize();
     let dist = lerp(10, 8, smoothstep(0.3, 0.65, p));
