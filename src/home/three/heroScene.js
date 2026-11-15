@@ -279,7 +279,7 @@ export function createHeroScene(canvas, { sites, dom, onArrive, textures = {}, q
   scene.add(sky);
 
   // a deep field: many faint stars and a few bright ones (fewer on weaker devices)
-  const STARS = low ? 3000 : 7000;
+  const STARS = low ? 6000 : 15000;
   const sp = new Float32Array(STARS * 3);
   const ss = new Float32Array(STARS);
   const st = new Float32Array(STARS);
@@ -428,6 +428,26 @@ export function createHeroScene(canvas, { sites, dom, onArrive, textures = {}, q
   entryGlow.visible = false;
   entryGlow.renderOrder = 4;
   rig.group.add(entryGlow);
+
+  /* ---- Touchdown: the rocket's shadow on the ground and a dust ring kicked up by the engines ---- */
+  const radialTex = (stops) => {
+    const c = document.createElement('canvas');
+    c.width = c.height = 128;
+    const g = c.getContext('2d');
+    const grd = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+    for (const [o, col] of stops) grd.addColorStop(o, col);
+    g.fillStyle = grd;
+    g.fillRect(0, 0, 128, 128);
+    return new THREE.CanvasTexture(c);
+  };
+  const shadowTex = radialTex([[0, 'rgba(0,0,0,0.85)'], [0.45, 'rgba(0,0,0,0.45)'], [1, 'rgba(0,0,0,0)']]);
+  const dustTex = radialTex([[0, 'rgba(230,180,140,0)'], [0.55, 'rgba(225,170,130,0.55)'], [0.75, 'rgba(210,150,110,0.3)'], [1, 'rgba(200,140,100,0)']]);
+  const groundShadow = new THREE.Mesh(new THREE.CircleGeometry(1, 48), new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false, opacity: 0 }));
+  const dustRing = new THREE.Mesh(new THREE.CircleGeometry(1, 48), new THREE.MeshBasicMaterial({ map: dustTex, transparent: true, depthWrite: false, opacity: 0 }));
+  groundShadow.visible = dustRing.visible = false;
+  groundShadow.renderOrder = 2;
+  dustRing.renderOrder = 3;
+  scene.add(groundShadow, dustRing);
 
   /* ---- Layout-dependent pieces (rebuilt on resize) ---- */
   const L = {
@@ -654,8 +674,32 @@ export function createHeroScene(canvas, { sites, dom, onArrive, textures = {}, q
   const moonView = new THREE.Vector3();
   const earthView = new THREE.Vector3();
   let moonPhase = 0;
-  let moonHiddenAt = null;
-  let moonOcclusionCooldown = 0;
+  // When the Moon leaves view (fully behind Earth, or off the edge of the screen) it glides
+  // along the hidden part of its orbit for 2 seconds, then comes back on the other side.
+  let moonSkip = null; // { t0, from, to } while gliding through the hidden stretch
+  const moonProbe = new THREE.Vector3();
+  const moonAt = (phase, out) => out.copy(L.lunar.c)
+    .addScaledVector(L.lunar.u, Math.cos(phase) * L.lunar.r)
+    .addScaledVector(L.lunar.v, Math.sin(phase) * L.lunar.r);
+  /** Can any of the Moon be seen at this point of its orbit? */
+  const moonSeen = (phase) => {
+    moonAt(phase, moonProbe);
+    moonView.copy(moonProbe).applyMatrix4(camera.matrixWorldInverse);
+    earthView.copy(earth.position).applyMatrix4(camera.matrixWorldInverse);
+    const md = -moonView.z, ed = -earthView.z;
+    if (md <= 0) return false;
+    const mx = moonView.x / md / (TAN * camera.aspect), my = moonView.y / md / TAN;
+    const mr = L.moonR / md / TAN;
+    // off the screen
+    if (Math.abs(mx) - mr / camera.aspect > 1 || Math.abs(my) - mr > 1) return false;
+    // fully behind Earth's disc
+    if (ed > 0 && md > ed) {
+      const ex = earthView.x / ed / (TAN * camera.aspect), ey = earthView.y / ed / TAN;
+      const er = L.earthR / ed / TAN;
+      if (Math.hypot((mx - ex) * camera.aspect, my - ey) + mr < er) return false;
+    }
+    return true;
+  };
   const v = new THREE.Vector3();
   const w3 = new THREE.Vector3();
   const qA = new THREE.Quaternion();
@@ -818,25 +862,31 @@ export function createHeroScene(canvas, { sites, dom, onArrive, textures = {}, q
         flight.q0 = rig.group.quaternion.clone();
       }
       // the site's surface normal, with Mars as it is turning to face the camera
-      landN.copy(siteVec.get(flight.id)).applyQuaternion(qCur).normalize();
+      // aim at where the site WILL be once Mars has turned to face us (qTarget), not where it
+      // is mid-turn: aiming at the moving spot whipped the rocket round and slid it sideways
+      landN.copy(siteVec.get(flight.id)).applyQuaternion(qTarget).normalize();
       landP.copy(landN).multiplyScalar(L.marsR).add(L.marsPos);
       flight.site = landP;
       // landed size: small against the planet (it read as tall as a moon at 0.14 R); the camera
       // comes closer instead, so the rocket still fills a good part of the frame
       const s1 = L.marsR * 0.03;
-      const desc = clamp01((T - 0.35) / 1.75);
-      const e = 1 - Math.pow(1 - desc, 3); // fast from orbit, slow over the ground
+      const desc = clamp01((T - 0.15) / 1.95);
+      // eases in from a standstill (no jolt) and settles gently onto the ground
+      const e = desc * desc * desc * (desc * (desc * 6 - 15) + 10);
       hover.copy(landP).addScaledVector(landN, L.marsR * 0.09); // low enough to stay in frame
       landEnd.copy(landP).addScaledVector(landN, s1 * 0.5);
       rocketPos.copy(flight.from).multiplyScalar((1 - e) * (1 - e))
         .addScaledVector(hover, 2 * (1 - e) * e)
         .addScaledVector(landEnd, e * e);
       // keep the descent outside the planet's surface the whole way down
+      // (the floor is the touchdown height itself: a higher floor kept shoving the rocket back
+      // up in the last metres, so it jittered and never touched down)
+      const floorR = L.marsR + s1 * 0.5;
       toMars.copy(rocketPos).sub(L.marsPos);
-      if (toMars.length() < L.marsR * 1.03) rocketPos.copy(L.marsPos).addScaledVector(toMars.normalize(), L.marsR * 1.03);
+      if (toMars.length() < floorR) rocketPos.copy(L.marsPos).addScaledVector(toMars.normalize(), floorR);
       rScale = lerp(flight.s0, s1, smooth(clamp01(desc * 1.4)));
       // flip: nose away from the ground, engines down
-      rig.group.quaternion.copy(flight.q0).slerp(alignTo(landN, Z_AXIS, qB), smooth(clamp01(T / 0.7)));
+      rig.group.quaternion.copy(flight.q0).slerp(alignTo(landN, Z_AXIS, qB), smooth(clamp01(T / 1.1))); // an unhurried flip, engines down
       // braking burn, throttling down as it touches down
       landThrust = smoothstep(0.15, 0.45, T) * lerp(0.9, 0.35, desc) * (1 - smoothstep(2.0, 2.15, T));
       // entry through the thin air: the plasma glow peaks early, then the braking burn takes over
@@ -845,11 +895,26 @@ export function createHeroScene(canvas, { sites, dom, onArrive, textures = {}, q
       entryGlow.material.opacity = entry * 0.9;
       const flick = 1 + (reduced ? 0 : Math.sin(time * 31) * 0.05);
       entryGlow.scale.set(0.95 * flick, 1.25 * flick, 1);
+      // shadow on the ground under the rocket: faint and wide high up, dark and tight at touchdown
+      const height = Math.max(0, toMars.copy(rocketPos).sub(L.marsPos).length() - L.marsR);
+      const near = 1 - Math.min(1, height / (L.marsR * 0.12));
+      groundShadow.visible = desc > 0.05;
+      groundShadow.position.copy(landP).addScaledVector(landN, L.marsR * 0.0015);
+      groundShadow.lookAt(w3.copy(groundShadow.position).add(landN));
+      groundShadow.scale.setScalar(s1 * (0.9 - 0.45 * near));
+      groundShadow.material.opacity = 0.15 + 0.6 * near;
+      // dust kicked up by the braking burn in the last metres, spreading as it thins
+      const kick = smoothstep(1.55, 1.85, T) * (1 - smoothstep(2.05, 2.6, T));
+      dustRing.visible = kick > 0.01;
+      dustRing.position.copy(landP).addScaledVector(landN, L.marsR * 0.002);
+      dustRing.lookAt(w3.copy(dustRing.position).add(landN));
+      dustRing.scale.setScalar(s1 * (0.6 + 1.6 * smoothstep(1.55, 2.6, T)));
+      dustRing.material.opacity = kick * 0.85;
       // and the atmosphere thickens to a hazy band as the camera nears the ground
       marsAtmo.material.uniforms.uIntensity.value = 0.45 + 1.1 * smoothstep(0.3, 1.6, T);
     }
     if (import.meta.env.DEV && window.__rocketZoom) rScale *= window.__rocketZoom; // dev: inspect the model up close
-    if (!flight) entryGlow.visible = false;
+    if (!flight) entryGlow.visible = groundShadow.visible = dustRing.visible = false;
     rig.group.scale.setScalar(rScale);
     rig.group.position.copy(rocketPos);
     qRoll.setFromAxisAngle(Y, reduced ? 0.6 : time * 0.15);
@@ -915,47 +980,26 @@ export function createHeroScene(canvas, { sites, dom, onArrive, textures = {}, q
     bodyUniforms(earth, earthMat, SUN_EARTH);
     earthAtmo.material.uniforms.uSunWorld.value.copy(SUN_EARTH);
     if (L.lunar) {
-      // Keep the original slow orbital speed while skipping the far-side passage:
-      // once the Moon is fully hidden behind Earth's disc, hold it there for 2 seconds,
-      // then advance half an orbit so it emerges at the opposite limb.
+      // The Moon orbits and slips behind Earth naturally (Earth hides it pixel by pixel). Once
+      // no part of it can be seen, it glides along the hidden stretch of its orbit for 2 s
+      // and comes back into view on the other side, instead of blinking out mid-frame.
+      moon.visible = true;
       if (reduced) {
         moonPhase = 0;
-        moonHiddenAt = null;
-        moonOcclusionCooldown = 0;
-        moon.visible = true;
-      } else if (moonHiddenAt !== null) {
-        moon.visible = false;
-        if (time - moonHiddenAt >= 2) {
-          moonPhase = (moonPhase + Math.PI) % (Math.PI * 2);
-          moonHiddenAt = null;
-          moon.visible = true;
-          moonOcclusionCooldown = time + 0.5;
-        }
+        moonSkip = null;
+      } else if (moonSkip) {
+        const k = clamp01((time - moonSkip.t0) / 2);
+        moonPhase = moonSkip.from + (moonSkip.to - moonSkip.from) * k;
+        if (k >= 1) moonSkip = null;
       } else {
-        moon.visible = true;
-        moonPhase = (moonPhase + (dt / MOON_ORBIT_PERIOD) * Math.PI * 2) % (Math.PI * 2);
-      }
-
-      moon.position.copy(L.lunar.c)
-        .addScaledVector(L.lunar.u, Math.cos(moonPhase) * L.lunar.r)
-        .addScaledVector(L.lunar.v, Math.sin(moonPhase) * L.lunar.r);
-
-      // Detect complete occlusion in camera space. Leave the Moon mesh and renderer
-      // running normally; Earth's depth buffer hides it during the 2-second pause.
-      if (!reduced && moonHiddenAt === null && time >= moonOcclusionCooldown) {
-        earthView.copy(earth.position).applyMatrix4(camera.matrixWorldInverse);
-        moonView.copy(moon.position).applyMatrix4(camera.matrixWorldInverse);
-        const earthDepth = -earthView.z;
-        const moonDepth = -moonView.z;
-        if (moonDepth > earthDepth && earthDepth > 0 && moonDepth > 0) {
-          const dx = moonView.x / moonDepth - earthView.x / earthDepth;
-          const dy = moonView.y / moonDepth - earthView.y / earthDepth;
-          const moonRadius = L.moonR / moonDepth;
-          const earthRadius = L.earthR / earthDepth;
-          const reachesEarthLimb = Math.hypot(dx, dy) < earthRadius + moonRadius;
-          if (reachesEarthLimb) moonHiddenAt = time;
+        moonPhase += (dt / MOON_ORBIT_PERIOD) * Math.PI * 2;
+        if (!moonSeen(moonPhase)) {
+          let p = moonPhase;
+          for (let i = 0; i < 320 && !moonSeen(p); i++) p += 0.02;
+          moonSkip = { t0: time, from: moonPhase, to: p };
         }
       }
+      moonAt(moonPhase, moon.position);
     }
     bodyUniforms(moon, moonMat, SUN_MOON);
 
@@ -1073,6 +1117,8 @@ export function createHeroScene(canvas, { sites, dom, onArrive, textures = {}, q
     isInteractive: () => interactive,
     dispose() {
       entryTex.dispose();
+      shadowTex.dispose();
+      dustTex.dispose();
       entryGlow.material.dispose();
       canvas.removeEventListener('pointerdown', onDown);
       canvas.removeEventListener('pointermove', onMove);
