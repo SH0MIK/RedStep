@@ -13,7 +13,7 @@ const UseThis: React.FC = () => {
   const chars = Math.floor(interpolate(frame, [28, 62], [0, text.length], clamp));
   return (
     <AbsoluteFill style={{ backgroundColor: "#000", opacity: interpolate(frame, [136, 151], [1, 0], clamp) }}>
-      <Video name="Clip 4: ending" src={staticFile("team/clip4_ending.mp4")} volume={0.4} style={full} />
+      <Video name="Clip 4: ending" src={staticFile("team/clip4_ending.mp4")} muted style={full} />
       <div
         style={{
           position: "absolute", left: 600, top: 190, width: 1000, whiteSpace: "pre",
@@ -61,7 +61,8 @@ export const Closing: React.FC = () => (
     <Sequence name="B. Screen recording" from={151} durationInFrames={3071}><Demo /></Sequence>
     <Sequence name="C. End card" from={3222} durationInFrames={165}><EndCard /></Sequence>
 
-    <Sequence name="Bed: low drone" from={130} layout="none"><Audio src={staticFile("team/vo/bed.wav")} volume={0.16} /></Sequence>
+    <Sequence name="Score: final swell" from={3190} layout="none"><Audio src={staticFile("team/sfx/swell.wav")} volume={0.7} /></Sequence>
+    <Sequence name="SFX: whoosh into demo" from={118} layout="none"><Audio src={staticFile("team/sfx/whoosh.wav")} volume={0.5} /></Sequence>
 
     <Sequence name="VO: We could use this" from={36} layout="none"><Audio src={vo("01_use_this")} /></Sequence>
     <Sequence name="VO: leaving" from={196} layout="none"><Audio src={vo("02_leaving")} /></Sequence>

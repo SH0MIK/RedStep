@@ -17,3 +17,6 @@ public/film/audio/*.wav
 public/team/*.mp4
 public/team/vo/*.wav
 public/team/vo/*.mp3
+public/team/sfx/*.wav
+public/pitch/*.wav
+public/pitch/*.mp3
