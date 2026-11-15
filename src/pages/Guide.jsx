@@ -21,6 +21,8 @@ export default function Guide() {
   const [done, setDone] = useStored('mw-guide-done', {})
   const [answer, setAnswer] = useState(null)
   const [railOpen, setRailOpen] = useStored('mw-guide-rail', true)
+  // phones always show the step strip, so it must stay usable even if it was closed on desktop
+  const narrowView = typeof window !== 'undefined' && window.matchMedia('(max-width: 980px)').matches
   // The steps sidebar is fixed to the window; when the footer scrolls into view it stops above
   // it instead of covering it.
   useEffect(() => {
@@ -69,7 +71,7 @@ export default function Guide() {
 
   return (
     <div className={`guide ${railOpen ? '' : 'rail-closed'}`}>
-      <aside className="g-rail" aria-label="Guide steps" inert={!railOpen}>
+      <aside className="g-rail" aria-label="Guide steps" inert={!railOpen && !narrowView}>
         <div className="g-rail-top">
           <button type="button" className="sb-toggle" onClick={() => setRailOpen(false)} aria-label="Hide sidebar" title="Hide sidebar"><SidebarIcon /></button>
           <p className="g-rail-title">Survival guide</p>

@@ -56,7 +56,7 @@ const ANCHORS = {
     earth: { x: -1.3, y: -0.98, r: 0.44, d: 16 },
     moon: { x: -0.56, y: -0.02, r: 0.03, d: 20 },
     mars: { x: 0.64, y: -0.1, r: 0.034, d: 30 },
-    rocket: { x: 0.3, y: -0.46, len: 0.27, tilt: 22, d: 8 },
+    rocket: { x: 0.28, y: -0.36, len: 0.21, tilt: 20, d: 8 }, // in the gap between the buttons and the 'Mars right now' card
     end: { x: 0, y: 0.42, r: 0.155 },
   },
 };
