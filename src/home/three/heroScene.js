@@ -532,7 +532,8 @@ export function createHeroScene(canvas, { sites, dom, onArrive, textures = {}, q
     // the rocket lifts off from Earth: the path starts on Earth's surface facing the rocket
     const p0 = earth.position.clone().add(L.rocketPos0.clone().sub(earth.position).normalize().multiplyScalar(L.earthR * 1.01));
     const p1 = L.rocketPos0.clone();
-    const p2 = L.rocketPos0.clone().addScaledVector(dir, L.rocketLen * 1.6).add(new THREE.Vector3(0.6, 0.2, -1.2));
+    // first leg: up along its heading and away from the camera, so it recedes as you scroll
+    const p2 = L.rocketPos0.clone().addScaledVector(dir, L.rocketLen * 2.2).add(new THREE.Vector3(0.4, 0.5, -3.2));
     // cruise in a gentle arc toward the camera side of Mars, then a short final approach
     const p3 = p1.clone().lerp(entry, 0.55).add(new THREE.Vector3(0, 1.4, 0.8));
     const p4 = entry.clone().add(new THREE.Vector3(-1.0, 0.25, 0.6).multiplyScalar(L.marsR));
@@ -819,7 +820,7 @@ export function createHeroScene(canvas, { sites, dom, onArrive, textures = {}, q
     L.curve.getTangent(u, tangent);
     // in the opening frame the rocket stands at the reference angle, not along the curve
     // from Earth (which leaned it over to ~50°); it eases onto the path as you scroll
-    if (L.heroDir) tangent.lerp(L.heroDir, launch * (1 - smoothstep(0.02, 0.16, p))).normalize();
+    if (L.heroDir) tangent.lerp(L.heroDir, launch * (1 - smoothstep(0.02, 0.3, p))).normalize(); // turns onto its course gradually
     // no parking orbit: circling first took the rocket behind Mars, and the landing then
     // started from the far side and cut through the planet
     const park = 0;
@@ -845,7 +846,8 @@ export function createHeroScene(canvas, { sites, dom, onArrive, textures = {}, q
     toMars.copy(rocketPos).sub(L.marsPos);
     const minR = L.marsR * 1.35;
     if (toMars.lengthSq() < minR * minR) rocketPos.copy(L.marsPos).addScaledVector(toMars.normalize(), minR);
-    let rScale = L.rocketLen * lerp(1, 0.17, smoothstep(0.25, 0.82, p)) * lerp(0.18, 1, launch);
+    // shrinks steadily into the distance from the first scroll, not after a quarter of the way
+    let rScale = L.rocketLen * lerp(1, 0.17, smoothstep(0.04, 0.75, p)) * lerp(0.18, 1, launch);
     // steady heading: ease toward the path direction instead of snapping each frame
     if (reduced || !qSmoothSet) { qSmooth.copy(qFlight); qSmoothSet = true; }
     else qSmooth.slerp(qFlight, 1 - Math.exp(-dt * 6));
@@ -926,10 +928,12 @@ export function createHeroScene(canvas, { sites, dom, onArrive, textures = {}, q
     let thrust = landThrust ?? ignite * (1 + vel * 0.35 + flicker) * (1 - park);
 
     /* ---- Camera ---- */
-    const chase = smoothstep(0.03, 0.42, p);
+    // the camera holds back while the rocket climbs away, then follows it out toward Mars
+    // (it used to dolly in at once, so the rocket ballooned and swung toward the viewer)
+    const chase = smoothstep(0.12, 0.55, p);
     tgt.set(0, 0, 0).lerp(w3.copy(rocketPos).add(L.chase), chase * 0.85);
-    camDir.set(0, 0, 1).lerp(v.set(0.42, 0.14, 1), smoothstep(0.08, 0.5, p) * (1 - arrive)).normalize();
-    let dist = lerp(10, 7, smoothstep(0, 0.35, p));
+    camDir.set(0, 0, 1).lerp(v.set(0.42, 0.14, 1), smoothstep(0.15, 0.6, p) * (1 - arrive)).normalize();
+    let dist = lerp(10, 8, smoothstep(0.3, 0.65, p));
     tgt.lerp(L.endTarget, arrive);
     camDir.lerp(v.set(0, 0, 1), arrive).normalize();
     dist = lerp(dist, L.endDist, arrive);
