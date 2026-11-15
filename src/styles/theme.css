@@ -913,3 +913,21 @@
     order: -1;
   }
 }
+
+/* icon-only buttons (undo, start over): no side padding, so the icon isn't squashed */
+:root .btn.ab-icon {
+  width: 40px;
+  min-width: 40px;
+  padding: 0;
+  flex: none;
+}
+:root .btn.ab-icon svg {
+  flex: none;
+}
+
+/* desktop top bar is a full pill, so its Emergency button is too */
+@media (min-width: 941px) {
+  :root .nav-sos {
+    border-radius: 980px;
+  }
+}
