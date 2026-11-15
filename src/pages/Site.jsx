@@ -566,7 +566,7 @@ function Planner({ site }) {
       {suggestNote && <p className="draw-hint draw-warn">{suggestNote}</p>}
       {!suggestNote && suggestWhy?.checked > 0 && a && !drawing && (
         <p className="draw-hint suggest-why" role="status">
-          <b>Option {suggestWhy.option} of {suggestWhy.of}</b> · {suggestWhy.checked} stop combinations analysed, {suggestWhy.fits} fit your air and daylight · science {suggestWhy.science}/{suggestWhy.scienceMax}
+          <b>Option {suggestWhy.option} of {suggestWhy.of}</b> · {suggestWhy.checked} routes checked, {suggestWhy.fits} safe · science {suggestWhy.science}/{suggestWhy.scienceMax}
         </p>
       )}
 

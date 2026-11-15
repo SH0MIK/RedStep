@@ -48,6 +48,13 @@ export default function Guide() {
   const Widget = WIDGETS[s.widget]
   const go = (id) => navigate(`/guide/${id}`)
 
+  // phones: the steps are a sideways strip; keep the current step in view
+  useEffect(() => {
+    const on = document.querySelector('.g-steps a.on')
+    const strip = on?.closest('.g-steps')
+    if (on && strip && strip.scrollWidth > strip.clientWidth) strip.scrollTo({ left: on.offsetLeft - strip.clientWidth / 2 + on.offsetWidth / 2 })
+  }, [idx])
+
   useEffect(() => {
     setAnswer(null)
     window.scrollTo({ top: 0 })

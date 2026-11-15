@@ -73,6 +73,8 @@ const MarsMap = forwardRef(function MarsMap({ meta, grid, layers, onMapClick, on
     if (import.meta.env.DEV) window.__map = m
     m.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'bottom-right')
     m.addControl(new maplibregl.AttributionControl({ compact: true, customAttribution: 'NASA · JPL-Caltech · USGS · ASU · ESA/DLR/FU Berlin' }), 'bottom-left')
+    // phones: start with the credits folded to their (i) button so they don't cover the map
+    if (window.innerWidth < 768) requestAnimationFrame(() => m.getContainer().querySelector('.maplibregl-ctrl-attrib')?.classList.remove('maplibregl-compact-show'))
     m.dragRotate.enable()
     m.touchZoomRotate.enableRotation()
 
