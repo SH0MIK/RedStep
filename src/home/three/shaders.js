@@ -389,6 +389,40 @@ void sphereUv(vec3 n){
 }
 vec4 tex(sampler2D t, vec2 uv){ return textureGrad(t, uv, gDx, gDy); }
 
+#if defined(MARS)
+// Close-up surface detail for the landing: the 2K global map is only ~5 km a pixel, so near
+// the ground it went soft. Procedural terrain (fine relief and small craters), pinned to the
+// planet, fades in as the camera comes down and shades through the real map's colours.
+float h3(vec3 p){ p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+float vnoise(vec3 x){
+  vec3 i = floor(x), f = fract(x);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(h3(i), h3(i + vec3(1, 0, 0)), f.x), mix(h3(i + vec3(0, 1, 0)), h3(i + vec3(1, 1, 0)), f.x), f.y),
+             mix(mix(h3(i + vec3(0, 0, 1)), h3(i + vec3(1, 0, 1)), f.x), mix(h3(i + vec3(0, 1, 1)), h3(i + vec3(1, 1, 1)), f.x), f.y), f.z);
+}
+// small bowl-shaped craters with raised rims, one per cell at most
+float craters(vec3 p){
+  vec3 i = floor(p), f = fract(p);
+  float h = 0.0;
+  for (int z = -1; z <= 1; z++) for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++) {
+    vec3 c = vec3(float(x), float(y), float(z));
+    vec3 cell = i + c;
+    float keep = step(0.62, h3(cell + 7.1));
+    vec3 o = c + vec3(h3(cell), h3(cell + 3.3), h3(cell + 5.7)) - f;
+    float r = 0.18 + 0.3 * h3(cell + 9.2);
+    float d = length(o);
+    h += keep * (-0.9 * (1.0 - smoothstep(0.0, r, d)) * (1.0 - d / r * 0.6) + 0.45 * exp(-pow((d - r) / (0.16 * r), 2.0)));
+  }
+  return h;
+}
+float surfaceHeight(vec3 p){
+  float n = 0.0, a = 0.5;
+  vec3 q = p;
+  for (int k = 0; k < 6; k++) { n += a * vnoise(q); q = q * 2.07 + 1.3; a *= 0.5; }
+  return n * 0.8 + craters(p * 0.35) * 0.35 + craters(p * 1.3) * 0.18;
+}
+#endif
+
 void main(){
   vec3 N = normalize(vPos);
   sphereUv(N);
@@ -412,6 +446,24 @@ void main(){
   float fres = pow(1.0 - NdV, 2.6);
 
 #if defined(MARS)
+  // close-up detail: only when the camera is near the surface (altitude under ~1.4 radii)
+  float alt = length(uCamObj) - 1.0;
+  float detail = 1.0 - smoothstep(0.25, 1.4, alt);
+  if (detail > 0.001) {
+    vec3 P = N * 260.0;
+    float h = surfaceHeight(P);
+    // bump from the height's screen-space slope (no extra texture lookups)
+    vec3 dpdx = dFdx(vPos), dpdy = dFdy(vPos);
+    float dhx = dFdx(h), dhy = dFdy(h);
+    vec3 r1 = cross(dpdy, N), r2 = cross(N, dpdx);
+    float det = dot(dpdx, r1);
+    vec3 grad = sign(det) * (dhx * r1 + dhy * r2);
+    vec3 Nd = normalize(abs(det) * Nb - grad * 0.0028 * detail);
+    ndl = dot(Nd, uSunObj);
+    lit = max(ndl, 0.0) * smoothstep(-0.12, 0.12, ndlG);
+    // dust and rock: brighter on high ground, darker in hollows, in the map's own colours
+    albedo *= mix(1.0, 0.78 + 0.44 * clamp(h, 0.0, 1.0), detail * 0.75);
+  }
   // Dusty regolith scatters broadly: flatten the Lambert falloff a touch.
   float diff = pow(lit, 0.82);
   vec3 col = albedo * diff * uExposure + albedo * uAmbient;

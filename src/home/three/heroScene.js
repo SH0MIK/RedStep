@@ -56,7 +56,7 @@ const ANCHORS = {
     earth: { x: -1.3, y: -0.98, r: 0.44, d: 16 },
     moon: { x: -0.56, y: -0.02, r: 0.03, d: 20 },
     mars: { x: 0.64, y: -0.1, r: 0.034, d: 30 },
-    rocket: { x: 0.28, y: -0.36, len: 0.21, tilt: 20, d: 8 }, // in the gap between the buttons and the 'Mars right now' card
+    rocket: { x: 0.18, y: -0.33, len: 0.34, tilt: 18, d: 8 }, // centre stage below the compact copy
     end: { x: 0, y: 0.42, r: 0.155 },
   },
 };
@@ -406,6 +406,28 @@ export function createHeroScene(canvas, { sites, dom, onArrive, textures = {}, q
   const rig = createRocketRig({ quality });
   if (import.meta.env.DEV) window.__rig = rig;
   scene.add(rig.group);
+
+  /* ---- Atmospheric entry: a plasma glow round the rocket's leading end as it drops into
+     Mars's air during the landing ---- */
+  const entryTex = (() => {
+    const c = document.createElement('canvas');
+    c.width = c.height = 128;
+    const g = c.getContext('2d');
+    const grd = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+    grd.addColorStop(0, 'rgba(255,240,215,1)');
+    grd.addColorStop(0.25, 'rgba(255,170,90,0.85)');
+    grd.addColorStop(0.6, 'rgba(230,90,40,0.35)');
+    grd.addColorStop(1, 'rgba(200,60,20,0)');
+    g.fillStyle = grd;
+    g.fillRect(0, 0, 128, 128);
+    return new THREE.CanvasTexture(c);
+  })();
+  const entryGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: entryTex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0 }));
+  entryGlow.position.set(0, -0.58, 0); // just below the engines, which lead on the way down
+  entryGlow.scale.set(0.95, 0.95, 1);
+  entryGlow.visible = false;
+  entryGlow.renderOrder = 4;
+  rig.group.add(entryGlow);
 
   /* ---- Layout-dependent pieces (rebuilt on resize) ---- */
   const L = {
@@ -817,8 +839,17 @@ export function createHeroScene(canvas, { sites, dom, onArrive, textures = {}, q
       rig.group.quaternion.copy(flight.q0).slerp(alignTo(landN, Z_AXIS, qB), smooth(clamp01(T / 0.7)));
       // braking burn, throttling down as it touches down
       landThrust = smoothstep(0.15, 0.45, T) * lerp(0.9, 0.35, desc) * (1 - smoothstep(2.0, 2.15, T));
+      // entry through the thin air: the plasma glow peaks early, then the braking burn takes over
+      const entry = smoothstep(0.2, 0.5, T) * (1 - smoothstep(0.95, 1.4, T));
+      entryGlow.visible = entry > 0.01;
+      entryGlow.material.opacity = entry * 0.9;
+      const flick = 1 + (reduced ? 0 : Math.sin(time * 31) * 0.05);
+      entryGlow.scale.set(0.95 * flick, 1.25 * flick, 1);
+      // and the atmosphere thickens to a hazy band as the camera nears the ground
+      marsAtmo.material.uniforms.uIntensity.value = 0.45 + 1.1 * smoothstep(0.3, 1.6, T);
     }
     if (import.meta.env.DEV && window.__rocketZoom) rScale *= window.__rocketZoom; // dev: inspect the model up close
+    if (!flight) entryGlow.visible = false;
     rig.group.scale.setScalar(rScale);
     rig.group.position.copy(rocketPos);
     qRoll.setFromAxisAngle(Y, reduced ? 0.6 : time * 0.15);
@@ -1041,6 +1072,8 @@ export function createHeroScene(canvas, { sites, dom, onArrive, textures = {}, q
     },
     isInteractive: () => interactive,
     dispose() {
+      entryTex.dispose();
+      entryGlow.material.dispose();
       canvas.removeEventListener('pointerdown', onDown);
       canvas.removeEventListener('pointermove', onMove);
       canvas.removeEventListener('pointerup', onUp);
