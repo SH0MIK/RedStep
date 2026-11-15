@@ -534,12 +534,16 @@ export function createHeroScene(canvas, { sites, dom, onArrive, textures = {}, q
     const p1 = L.rocketPos0.clone();
     // first leg: up along its heading and away from the camera, so it recedes as you scroll
     const p2 = L.rocketPos0.clone().addScaledVector(dir, L.rocketLen * 2.2).add(new THREE.Vector3(0.4, 0.5, -3.2));
-    // cruise in a gentle arc toward the camera side of Mars, then a short final approach
-    const p3 = p1.clone().lerp(entry, 0.55).add(new THREE.Vector3(0, 1.4, 0.8));
+    // final approach toward the camera side of Mars, and one gentle arc between: no S-bends
+    // (the old cruise point pulled the path sideways and back, so the rocket swung twice)
     const p4 = entry.clone().add(new THREE.Vector3(-1.0, 0.25, 0.6).multiplyScalar(L.marsR));
+    const p3 = p2.clone().lerp(p4, 0.5).add(new THREE.Vector3(0, 0.6, 0));
     const pts = [p0, p1, p2, p3, p4, entry];
     L.curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal');
-    L.u0 = 1 / (pts.length - 1); // the reference pose, p1
+    // The rocket moves by distance travelled (getPointAt), so its speed is even along the whole
+    // path; L.u0 is the hero pose (p1) as a fraction of that distance.
+    const lens = L.curve.getLengths(600);
+    L.u0 = lens[Math.round(600 / (pts.length - 1))] / lens[600];
 
     for (const line of [transfer, lunarRing, marsRing]) {
       if (!line) continue;
@@ -816,8 +820,8 @@ export function createHeroScene(canvas, { sites, dom, onArrive, textures = {}, q
     /* ---- Rocket along the transfer path, then into a steady parking orbit ---- */
     const fp = easeInOut(clamp01(p / 0.9));
     const u = L.u0 * launch + (1 - L.u0) * fp;
-    L.curve.getPoint(u, rocketPos);
-    L.curve.getTangent(u, tangent);
+    L.curve.getPointAt(u, rocketPos);
+    L.curve.getTangentAt(u, tangent);
     // in the opening frame the rocket stands at the reference angle, not along the curve
     // from Earth (which leaned it over to ~50°); it eases onto the path as you scroll
     if (L.heroDir) tangent.lerp(L.heroDir, launch * (1 - smoothstep(0.02, 0.3, p))).normalize(); // turns onto its course gradually
@@ -888,7 +892,7 @@ export function createHeroScene(canvas, { sites, dom, onArrive, textures = {}, q
       if (toMars.length() < floorR) rocketPos.copy(L.marsPos).addScaledVector(toMars.normalize(), floorR);
       rScale = lerp(flight.s0, s1, smooth(clamp01(desc * 1.4)));
       // flip: nose away from the ground, engines down
-      rig.group.quaternion.copy(flight.q0).slerp(alignTo(landN, Z_AXIS, qB), smooth(clamp01(T / 1.1))); // an unhurried flip, engines down
+      rig.group.quaternion.copy(flight.q0).slerp(alignTo(landN, Z_AXIS, qB), smooth(clamp01(T / 1.6))); // an unhurried flip, engines down, blended into the descent
       // braking burn, throttling down as it touches down
       landThrust = smoothstep(0.15, 0.45, T) * lerp(0.9, 0.35, desc) * (1 - smoothstep(2.0, 2.15, T));
       // entry through the thin air: the plasma glow peaks early, then the braking burn takes over
