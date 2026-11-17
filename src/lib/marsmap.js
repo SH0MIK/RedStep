@@ -104,17 +104,31 @@ export async function paintRough({ w, h, rough }) {
 
 /**
  * Register a `marsdem://z/x/y` protocol that renders Terrarium-encoded height tiles straight
- * from the in-memory grid, so 3D terrain needs no tile files. Outside the grid we use its
- * lowest height so the edges sit flat.
+ * from the in-memory grid, so 3D terrain needs no tile files. Outside the grid the edge heights
+ * ease into the site's average, so the terrain runs off smoothly instead of ending in a cliff.
  */
 export function registerDem(name, grid, bbox) {
   const [w, s, e, n] = bbox
   const { w: gw, h: gh, elev } = grid
-  let floor = Infinity
-  for (const v of elev) if (v < floor) floor = v
+  // Outside the grid there are no heights. Dropping to one flat level left the site standing
+  // on a cliff-edged block when the map was tilted; instead the edge heights carry on outward
+  // and ease into the site's average height, so the terrain runs off smoothly.
+  let sum = 0, cnt = 0
+  for (const v of elev) if (Number.isFinite(v) && v > -30000) { sum += v; cnt++ }
+  const mean = cnt ? sum / cnt : 0
+  const fadeDeg = Math.max(e - w, n - s) * 0.35
   const sample = (lon, lat) => {
-    const fx = ((lon - w) / (e - w)) * gw - 0.5, fy = ((n - lat) / (n - s)) * gh - 0.5
-    if (fx < 0 || fy < 0 || fx > gw - 1 || fy > gh - 1) return floor
+    let fx = ((lon - w) / (e - w)) * gw - 0.5, fy = ((n - lat) / (n - s)) * gh - 0.5
+    const ox = Math.max(w - lon, lon - e, 0), oy = Math.max(s - lat, lat - n, 0)
+    const out = Math.hypot(ox * Math.cos(lat * D), oy)
+    fx = Math.min(gw - 1, Math.max(0, fx))
+    fy = Math.min(gh - 1, Math.max(0, fy))
+    const v = inside(fx, fy)
+    if (out <= 0) return v
+    const t = Math.min(1, out / fadeDeg)
+    return v + (mean - v) * t * t * (3 - 2 * t)
+  }
+  const inside = (fx, fy) => {
     const x0 = Math.floor(fx), y0 = Math.floor(fy), tx = fx - x0, ty = fy - y0
     const x1 = Math.min(gw - 1, x0 + 1), y1 = Math.min(gh - 1, y0 + 1)
     const a = elev[y0 * gw + x0], b = elev[y0 * gw + x1], c = elev[y1 * gw + x0], d = elev[y1 * gw + x1]

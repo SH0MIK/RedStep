@@ -15,6 +15,22 @@ export function SidebarIcon() {
   )
 }
 
+/** Phones: the panel is a bottom sheet, so its buttons show a sheet, not a sidebar.
+ *  `down` is the hide button (a chevron), otherwise the sheet rising from the bottom edge. */
+export function SheetIcon({ down = false }) {
+  return down ? (
+    <svg viewBox="0 0 20 16" width="20" height="16" aria-hidden="true">
+      <path d="M5 6l5 5 5-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ) : (
+    <svg viewBox="0 0 20 16" width="20" height="16" aria-hidden="true">
+      <rect x="1" y="1" width="18" height="14" rx="3.2" fill="none" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M1.7 8.6h16.6" stroke="currentColor" strokeWidth="1.4" />
+      <line x1="8" y1="11.4" x2="12" y2="11.4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  )
+}
+
 export function Sidebar({ open, onToggle, title, side = 'left', className = '', header, children, footer, label, reopenBadge }) {
   const keys = shortcut('Shift', 'S')
   useEffect(() => {
@@ -29,8 +45,9 @@ export function Sidebar({ open, onToggle, title, side = 'left', className = '', 
     <>
       <aside className={`sb sb-${side} ${open ? 'sb-open' : ''} ${className}`} aria-label={label || title} inert={!open}>
         <div className="sb-top">
-          <button type="button" className="sb-toggle" onClick={onToggle} aria-label="Hide sidebar" title={`Hide sidebar (${keys})`}>
-            <SidebarIcon />
+          <button type="button" className="sb-toggle" onClick={onToggle} aria-label="Hide panel" title={`Hide panel (${keys})`}>
+            <span className="sb-ic-side"><SidebarIcon /></span>
+            <span className="sb-ic-sheet"><SheetIcon down /></span>
           </button>
           {title && <p className="sb-title">{title}</p>}
         </div>
@@ -38,8 +55,9 @@ export function Sidebar({ open, onToggle, title, side = 'left', className = '', 
         <div className="sb-body">{children}</div>
         {footer && <div className="sb-footer">{footer}</div>}
       </aside>
-      <button type="button" className={`sb-reopen sb-reopen-${side} ${open ? '' : 'show'}`} onClick={onToggle} aria-label="Show sidebar" title={`Show sidebar (${keys})`} tabIndex={open ? -1 : 0}>
-        <SidebarIcon />
+      <button type="button" className={`sb-reopen sb-reopen-${side} ${open ? '' : 'show'}`} onClick={onToggle} aria-label="Show panel" title={`Show panel (${keys})`} tabIndex={open ? -1 : 0}>
+        <span className="sb-ic-side"><SidebarIcon /></span>
+        <span className="sb-ic-sheet"><SheetIcon /></span>
         {reopenBadge}
       </button>
     </>

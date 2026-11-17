@@ -168,7 +168,14 @@ async function buildModel(q = 1) {
   }
   // mission roundel on the white core: deep blue disc, white rim, a red Mars, a white orbit
   // (the team's own emblem; the NASA insignia needs NASA's permission to use)
-  const decal = (g, lift, c) => { g.translate(0, 0.53, 0); parts.push(painted(onHull(g, lift), c)); };
+  // on both sides of the hull, so it shows whichever way the rocket faces
+  const decal = (g, lift, c) => {
+    g.translate(0, 0.53, 0);
+    const front = onHull(g, lift);
+    const back = front.clone();
+    back.rotateY(Math.PI);
+    parts.push(painted(front, c), painted(back, c));
+  };
   decal(new THREE.RingGeometry(0.0205, 0.0225, S(96)), 0.0009, PAINT.white);
   decal(new THREE.CircleGeometry(0.0205, S(96)), 0.0009, PAINT.blue);
   const mars = new THREE.CircleGeometry(0.0082, S(64));

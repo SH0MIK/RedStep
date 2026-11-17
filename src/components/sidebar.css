@@ -281,6 +281,10 @@ button.sb-row:hover {
   color: var(--ice);
 }
 
+/* which glyph the panel buttons show: a sidebar on computers, a sheet on phones */
+.sb-ic-side { display: contents; }
+.sb-ic-sheet { display: none; }
+
 /* phones: the sidebar becomes a bottom sheet */
 @media (max-width: 820px) {
   .sb {
@@ -298,6 +302,8 @@ button.sb-row:hover {
     top: auto;
     bottom: 16px;
   }
+  .sb-ic-side { display: none; }
+  .sb-ic-sheet { display: contents; }
 }
 
 /* ---- open / close animation ---- */

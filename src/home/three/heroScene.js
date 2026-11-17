@@ -556,7 +556,13 @@ export function createHeroScene(canvas, { sites, dom, onArrive, textures = {}, q
     // Arrival point: in front of Mars on the camera's side, up and to the left, so the rocket
     // never passes behind the planet or through it (it used to join a parking orbit that took
     // it round the back first)
-    const entry = L.marsPos.clone().addScaledVector(new THREE.Vector3(-0.8, 0.25, 0.55).normalize(), L.marsR * 1.9);
+    // On a portrait phone the frame is narrow but tall, so a side approach left the picture
+    // (the rocket vanished just before landing); there it comes up to Mars from below, where the
+    // portrait frame has room (Mars sits in its upper half).
+    const tallness = 1 - smoothstep(0.8, 1.2, aspect);
+    const entryDir = new THREE.Vector3(-0.8, 0.25, 0.55).lerp(new THREE.Vector3(-0.3, -0.75, 0.6), tallness).normalize();
+    const entry = L.marsPos.clone().addScaledVector(entryDir, L.marsR * lerp(1.9, 1.6, tallness));
+    L.minScale = lerp(0.17, 0.32, tallness); // a phone shows the rocket larger in flight
     // the rocket lifts off from Earth: the path starts on Earth's surface facing the rocket
     const p0 = earth.position.clone().add(L.rocketPos0.clone().sub(earth.position).normalize().multiplyScalar(L.earthR * 1.01));
     const p1 = L.rocketPos0.clone();
@@ -564,7 +570,7 @@ export function createHeroScene(canvas, { sites, dom, onArrive, textures = {}, q
     const p2 = L.rocketPos0.clone().addScaledVector(dir, L.rocketLen * 1.5).add(new THREE.Vector3(1.1, 0.05, -1.8));
     // final approach toward the camera side of Mars, and one gentle arc between: no S-bends
     // (the old cruise point pulled the path sideways and back, so the rocket swung twice)
-    const p4 = entry.clone().add(new THREE.Vector3(-1.0, 0.25, 0.6).multiplyScalar(L.marsR));
+    const p4 = entry.clone().add(new THREE.Vector3(-1.0, 0.25, 0.6).lerp(new THREE.Vector3(-0.35, -0.9, 0.6), tallness).multiplyScalar(L.marsR));
     const p3 = p2.clone().lerp(p4, 0.5).add(new THREE.Vector3(0, 0.3, 0));
     const pts = [p0, p1, p2, p3, p4, entry];
     L.curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal');
@@ -761,6 +767,8 @@ export function createHeroScene(canvas, { sites, dom, onArrive, textures = {}, q
     return out.setFromRotationMatrix(basis);
   };
   let orbitA = 0;
+  let rollA = 0;
+  let rollV = 0.15;
   let orbitV = 0;
   const qRoll = new THREE.Quaternion();
   const qDrift = new THREE.Quaternion();
@@ -883,7 +891,7 @@ export function createHeroScene(canvas, { sites, dom, onArrive, textures = {}, q
     const minR = L.marsR * 1.35;
     if (toMars.lengthSq() < minR * minR) rocketPos.copy(L.marsPos).addScaledVector(toMars.normalize(), minR);
     // shrinks steadily into the distance from the first scroll, not after a quarter of the way
-    let rScale = L.rocketLen * lerp(1, 0.17, smoothstep(0.04, 0.75, p)) * lerp(0.18, 1, launch);
+    let rScale = L.rocketLen * lerp(1, L.minScale ?? 0.17, smoothstep(0.04, 0.75, p)) * lerp(0.18, 1, launch);
     // steady heading: ease toward the path direction instead of snapping each frame
     if (reduced || !qSmoothSet) { qSmooth.copy(qFlight); qSmoothSet = true; }
     else qSmooth.slerp(qFlight, 1 - Math.exp(-dt * 3.5));
@@ -903,6 +911,8 @@ export function createHeroScene(canvas, { sites, dom, onArrive, textures = {}, q
       // aim at where the site WILL be once Mars has turned to face us (qTarget), not where it
       // is mid-turn: aiming at the moving spot whipped the rocket round and slid it sideways
       landN.copy(siteVec.get(flight.id)).applyQuaternion(qTarget).normalize();
+      // near the ground, pin it to where the site actually is, so it can't drift once down
+      landN.lerp(w3.copy(siteVec.get(flight.id)).applyQuaternion(qCur), smoothstep(0.6, 1.6, T)).normalize();
       landP.copy(landN).multiplyScalar(L.marsR).add(L.marsPos);
       flight.site = landP;
       // landed size: small against the planet (it read as tall as a moon at 0.14 R); the camera
@@ -960,7 +970,10 @@ export function createHeroScene(canvas, { sites, dom, onArrive, textures = {}, q
     if (!flight) entryGlow.visible = groundShadow.visible = dustRing.visible = false;
     rig.group.scale.setScalar(rScale);
     rig.group.position.copy(rocketPos);
-    qRoll.setFromAxisAngle(Y, reduced ? 0.6 : time * 0.15);
+    // a slow roll in flight that eases to a stop for the landing: it stands still on the ground
+    rollV = flight ? rollV * Math.exp(-dt * 3) : 0.15;
+    rollA += rollV * dt;
+    qRoll.setFromAxisAngle(Y, reduced ? 0.6 : rollA);
     rig.body.quaternion.copy(qRoll);
 
     // engines cut off as it settles into orbit
@@ -1065,7 +1078,9 @@ export function createHeroScene(canvas, { sites, dom, onArrive, textures = {}, q
       qTarget.copy(qGoal);
     }
     if (reduced) qCur.copy(qGoal);
-    else qCur.slerp(qGoal, 1 - Math.exp(-dt * (drag.on ? 18 : 5)));
+    // during a landing Mars finishes turning to the site early, so the ground never slides
+    // under the ship once it is down
+    else qCur.slerp(qGoal, 1 - Math.exp(-dt * (drag.on ? 18 : flight ? 9 : 5)));
     mars.quaternion.copy(qCur);
 
     lightMix += ((lighting === 'now' ? 1 : 0) - lightMix) * (reduced ? 1 : 1 - Math.exp(-dt * 4));
@@ -1121,10 +1136,12 @@ export function createHeroScene(canvas, { sites, dom, onArrive, textures = {}, q
     const shadowOn = flight ? landLight * smoothstep(0.2, 0.7, landNear) : 0;
     marsMat.uniforms.uShadowOn.value = shadowOn;
     marsMat.uniforms.uPoolI.value = flight ? poolI : 0;
-    if (shadowOn > 0.001) {
+    if (flight) {
       mars.updateMatrixWorld();
       marsMat.uniforms.uPlanetMat.value.copy(mars.matrixWorld);
       marsMat.uniforms.uPool.value.set(landP.x, landP.y, landP.z, landS1 * 1.6);
+    }
+    if (shadowOn > 0.001) {
       // craters bend the shadow's edge by up to ~8% of the ship's height
       marsMat.uniforms.uShadowRelief.value = (landS1 / L.marsR) * 0.08;
       // a box just round the ship as the sun sees it (the ship is rScale long)

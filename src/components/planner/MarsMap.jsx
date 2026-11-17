@@ -6,6 +6,8 @@ import { prefersReducedMotion } from '../../lib/hooks.js'
 import { deviceTier } from '../../lib/quality.js'
 
 const EMPTY = { type: 'FeatureCollection', features: [] }
+// hills, crater walls and the delta read clearly when tilted, without looking like spikes
+const TILT_EXAGGERATION = 1.6
 const fc = (features) => ({ type: 'FeatureCollection', features })
 const pt = (lon, lat, props = {}) => ({ type: 'Feature', properties: props, geometry: { type: 'Point', coordinates: [lon, lat] } })
 const line = (coords, props = {}) => ({ type: 'Feature', properties: props, geometry: { type: 'LineString', coordinates: coords } })
@@ -44,6 +46,7 @@ const MarsMap = forwardRef(function MarsMap({ meta, grid, layers, onMapClick, on
   const el = useRef(null)
   const map = useRef(null)
   const ready = useRef(false)
+  const terrainHeld = useRef(false) // a guided 3D view owns the terrain while it runs
   const scale = useRef(null)
   const wps = useRef([])
   const deferred = useRef(new Map()) // layer id -> image not loaded yet
@@ -55,7 +58,14 @@ const MarsMap = forwardRef(function MarsMap({ meta, grid, layers, onMapClick, on
     const ctx = meta.layers.viking?.bbox || meta.grid.bbox
     const m = new maplibregl.Map({
       container: el.current,
-      style: { version: 8, sources: {}, layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#050403' } }] },
+      style: {
+        version: 8,
+        sources: {},
+        layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#050403' } }],
+        // tilted: a dusty Mars sky with haze toward the horizon, so the far ground fades out
+        // instead of smearing into streaks
+        sky: { 'sky-color': '#2a1710', 'horizon-color': '#c98f66', 'fog-color': '#9a6a4c', 'sky-horizon-blend': 0.6, 'horizon-fog-blend': 0.7, 'fog-ground-blend': 0.55, 'atmosphere-blend': 0 },
+      },
       bounds: [[w + (e - w) * 0.08, s + (n - s) * 0.2], [e - (e - w) * 0.25, n - (n - s) * 0.12]],
       maxBounds: [[ctx[0] - 0.3, ctx[1] - 0.3], [ctx[2] + 0.3, ctx[3] + 0.3]],
       minZoom: 8.5,
@@ -77,6 +87,14 @@ const MarsMap = forwardRef(function MarsMap({ meta, grid, layers, onMapClick, on
     if (window.innerWidth < 768) requestAnimationFrame(() => m.getContainer().querySelector('.maplibregl-ctrl-attrib')?.classList.remove('maplibregl-compact-show'))
     m.dragRotate.enable()
     m.touchZoomRotate.enableRotation()
+    // Tilting the map (two-finger drag on a phone, right-drag on a computer) raises the ground
+    // in 3D from the site's height map; flat again, it goes back to the cheaper 2D map.
+    // The guided 3D views manage terrain themselves while they run.
+    m.on('pitch', () => {
+      if (terrainHeld.current || !m.getSource('dem')) return
+      const want = m.getPitch() > 8
+      if (want !== !!m.getTerrain()) m.setTerrain(want ? { source: 'dem', exaggeration: TILT_EXAGGERATION } : null)
+    })
 
     m.on('load', () => {
       const img = (id, url, bbox) => m.addSource(id, { type: 'image', url, coordinates: corners(bbox) })
@@ -204,6 +222,8 @@ const MarsMap = forwardRef(function MarsMap({ meta, grid, layers, onMapClick, on
     const add = () => {
       registerDem('marsdem', grid, meta.grid.bbox)
       if (!m.getSource('dem')) m.addSource('dem', { type: 'raster-dem', tiles: ['marsdem://{z}/{x}/{y}'], tileSize: 256, encoding: 'terrarium', maxzoom: 13 })
+      // already tilted when the heights arrive: raise the ground now
+      if (!terrainHeld.current && m.getPitch() > 8 && !m.getTerrain()) m.setTerrain({ source: 'dem', exaggeration: TILT_EXAGGERATION })
     }
     if (ready.current) add()
     else m.once('load', add)
@@ -295,6 +315,7 @@ const MarsMap = forwardRef(function MarsMap({ meta, grid, layers, onMapClick, on
     groundView(lon, lat, onTurn) {
       const m = map.current
       if (!m) return { turn() {}, stop() {} }
+      terrainHeld.current = true
       if (m.getSource('dem')) m.setTerrain({ source: 'dem', exaggeration: 1 })
       const rot = () => onTurn?.(m.getBearing())
       m.on('rotate', rot)
@@ -303,13 +324,14 @@ const MarsMap = forwardRef(function MarsMap({ meta, grid, layers, onMapClick, on
       return {
         turn: (deg) => m.easeTo({ bearing: m.getBearing() + deg, duration: prefersReducedMotion() ? 0 : 500 }),
         bearing: () => m.getBearing(),
-        stop: () => { m.off('rotate', rot); m.setTerrain(null); m.easeTo({ pitch: 0, bearing: 0, duration: prefersReducedMotion() ? 0 : 900 }) },
+        stop: () => { m.off('rotate', rot); m.setTerrain(null); terrainHeld.current = false; m.easeTo({ pitch: 0, bearing: 0, duration: prefersReducedMotion() ? 0 : 900 }) },
       }
     },
     /** Fly along the walk in 3D. hud(i, d, {lon, lat, bearing}) is called each frame. Returns a stop function. */
     follow(profile, hud, done) {
       const m = map.current
       if (!m || !profile?.length) return () => {}
+      terrainHeld.current = true
       if (m.getSource('dem')) m.setTerrain({ source: 'dem', exaggeration: 2 })
       const total = profile[profile.length - 1][0]
       const ms = Math.min(26000, Math.max(9000, total * 3.5))
@@ -343,6 +365,7 @@ const MarsMap = forwardRef(function MarsMap({ meta, grid, layers, onMapClick, on
         stopped = true
         cancelAnimationFrame(raf)
         m.setTerrain(null)
+        terrainHeld.current = false
         m.easeTo({ pitch: 0, bearing: 0, duration: 900 })
       }
     },

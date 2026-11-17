@@ -441,6 +441,7 @@ float vnoise(vec3 x){
 // with sharp rims and a skirt of ejecta. gFloor collects how far into a crater floor we are,
 // so the floors can hold dark sand.
 float gFloor;
+float gMount; // the mountains' share of the height (kept out of the dust colouring)
 float craterField(vec3 p, float density){
   vec3 i = floor(p), f = fract(p);
   float h = 0.0;
@@ -462,11 +463,24 @@ float craterField(vec3 p, float density){
   }
   return h;
 }
+// Mountains: smooth knobs where a soft noise field peaks (round, no plateaus or seams), their
+// flanks cut by gullies and spurs
+float mountainField(vec3 p){
+  float base = vnoise(p) * 0.65 + vnoise(p * 2.03 + 3.1) * 0.35;
+  // rises gently out of the plain and keeps climbing to a rounded summit (no flat tops)
+  float t = smoothstep(0.28, 0.86, base);
+  float knob = t * sqrt(t);
+  // rounded gullies (a sharp V crease lit up as hard lines at this scale)
+  float gx = 2.0 * vnoise(p * 4.1 + 1.3) - 1.0;
+  float g = 1.0 - gx * gx;
+  return knob * (0.84 + 0.24 * g);
+}
 // footprint fade: an octave whose features are smaller than a pixel or two is left out, so the
 // globe never turns grainy on the way in (fw: how far P moves across one pixel)
 float aaw(float freq, float fw){ return 1.0 - smoothstep(0.18, 0.5, fw * freq); }
 float surfaceHeight(vec3 p, float fw){
   gFloor = 0.0;
+  gMount = 0.0;
   // rolling ground and rubble
   float n = 0.0, a = 0.5, fq = 0.12;
   vec3 q = p * 0.12;
@@ -484,6 +498,9 @@ float surfaceHeight(vec3 p, float fw){
   if (w3 > 0.0) h += craterField(p * 0.3, 0.38) * 0.2 * w3;
   float w4 = aaw(1.0, fw);
   if (w4 > 0.0) h += craterField(p * 1.0, 0.42) * 0.09 * w4;
+  // small mountains: round knobs and massifs cut by gullies, with open plains between them
+  float wm = aaw(0.055, fw);
+  if (wm > 0.0) { gMount = mountainField(p * 0.055) * 2.8 * wm; h += gMount; }
   // wind ripples in the sand, wandering a little, mostly on low ground and crater floors
   float wr = aaw(0.6, fw);
   if (wr > 0.0) {
@@ -537,7 +554,11 @@ void main(){
     vec3 r1 = cross(dpdy, N), r2 = cross(N, dpdx);
     float det = dot(dpdx, r1);
     vec3 grad = sign(det) * (dhx * r1 + dhy * r2);
-    vec3 Nd = normalize(abs(det) * Nb - grad * 0.0028 * detail);
+    // tilt from the slope, capped near 50°: steep hills shade as slopes instead of flipping
+    // the normal over (which painted them as flat, hard-edged patches)
+    vec3 tilt = grad * 0.0028 * detail / max(abs(det), 1e-12);
+    tilt *= min(1.0, 1.2 / max(length(tilt), 1e-6));
+    vec3 Nd = normalize(Nb - tilt);
     Nshade = Nd;
     ndl = dot(Nd, uSunObj);
     lit = max(ndl, 0.0) * smoothstep(-0.12, 0.12, ndlG);
@@ -551,7 +572,7 @@ void main(){
     float sandy = clamp(smoothstep(0.4, 0.7, patchN) * 0.7 + gFloor * 0.55, 0.0, 1.0);
     vec3 ground = mix(dust, sand * 0.78, sandy);
     // worn rims and high ground catch a little more dust
-    ground *= 0.92 + 0.16 * clamp(h * 0.6 + 0.5, 0.0, 1.0);
+    ground *= 0.92 + 0.16 * clamp((h - gMount) * 0.6 + 0.5, 0.0, 1.0);
     albedo = mix(albedo, ground, detail * 0.8);
   }
   // Dusty regolith scatters broadly: flatten the Lambert falloff a touch.
@@ -561,7 +582,7 @@ void main(){
   float sh = 0.0;
   vec3 wp = (uPlanetMat * vec4(N, 1.0)).xyz;
   if (uShadowOn > 0.001) {
-    vec3 wpr = (uPlanetMat * vec4(N * (1.0 + h * uShadowRelief * detail), 1.0)).xyz;
+    vec3 wpr = (uPlanetMat * vec4(N * (1.0 + clamp(h, -2.0, 2.0) * uShadowRelief * detail), 1.0)).xyz;
     sh = sunShadow(wpr) * uShadowOn;
   }
   vec3 col = albedo * diff * uExposure * (1.0 - sh) + albedo * uAmbient;

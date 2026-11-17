@@ -314,12 +314,14 @@ export default function Explorer({ onReady, initial = 'jezero', visible = true, 
     s.dataset.label = nice >= 1000 ? `${nice / 1000} km` : `${nice} m`
   }
 
-  // Keep the map centred in the space the sidebar leaves free.
+  // Keep the map centred in the space the sidebar leaves free: beside it on a computer, above
+  // the bottom sheet on a phone (so the place you tapped stays in sight).
   useEffect(() => {
     const m = map.current
     if (!m) return
     const left = sbOpen && !narrow ? 352 : 0
-    m.easeTo({ padding: { left, top: 0, right: 0, bottom: 0 }, duration: prefersReducedMotion() ? 0 : 700 })
+    const bottom = sbOpen && narrow ? Math.round(window.innerHeight * 0.5) : 0
+    m.easeTo({ padding: { left, top: 0, right: 0, bottom }, duration: prefersReducedMotion() ? 0 : 700 })
   }, [sbOpen, narrow, ready])
 
   // ---------- basemap + overlays ----------
@@ -339,7 +341,7 @@ export default function Explorer({ onReady, initial = 'jezero', visible = true, 
   // ---------- selection ----------
   const fly = (lon, lat, zoom) => map.current?.flyTo({ center: [lon, lat], zoom, duration: prefersReducedMotion() ? 0 : 2600, curve: 1.5, essential: true })
   const setPin = (p) => map.current?.getSource('pin')?.setData({ type: 'FeatureCollection', features: p ? [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: p } }] : [] })
-  const selectSite = (s) => { setSel({ kind: 'site', site: s, lon: s.lon, lat: s.lat }); setPin(null); fly(s.lon, s.lat, s.id === 'jezero' ? 9.2 : 7); if (!narrow) setSbOpen(true) }
+  const selectSite = (s) => { setSel({ kind: 'site', site: s, lon: s.lon, lat: s.lat }); setPin(null); fly(s.lon, s.lat, s.id === 'jezero' ? 9.2 : 7); setSbOpen(true) } // on phones too: the sheet slides up with the place's details
   const selectName = (n) => { setSel({ kind: 'name', name: n[0], type: n[3], lon: n[1], lat: n[2] }); setPin([n[1], n[2]]); fly(n[1], n[2], n[4] === 1 ? 3.6 : n[4] === 2 ? 5 : 7); setQuery(''); setSbOpen(true) }
   const dropPin = (p) => {
     setPin(p)
