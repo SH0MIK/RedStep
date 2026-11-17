@@ -72,6 +72,13 @@ const SUN_MOON = new THREE.Vector3(0.9, 0.32, 0.12).normalize();
 // Parking orbit radius (Mars radii) and angular speed (rad/s): about one lap every 30 s.
 const PARK_R = 1.24;
 const LAND_T = 2.75; // seconds from 'land here' to the site page
+// Landing light: a low sun from the left, so the landed ship casts a long, readable shadow
+const LAND_SUN_ELEV = (28 * Math.PI) / 180;
+const MARS_EXPOSURE = 1.28;
+// Shadow penumbra: Mars's sun is small and its air thin, so shadows stay crisp; this widens
+// the edge by ~2.5% of the distance from the ship (a touch softer than the real 0.6%, so the
+// far end reads as further away)
+const SHADOW_PENUMBRA = 0.025;
 const ORBIT_W = 0.5; // about one lap every 12 s: clearly moving
 const MOON_ORBIT_PERIOD = 32; // preserve the original orbital speed
 
@@ -340,11 +347,32 @@ export function createHeroScene(canvas, { sites, dom, onArrive, textures = {}, q
     rim: '#e7a07a',
     rimStrength: 0.28,
     bump: 3.2,
-    exposure: 1.28,
+    exposure: MARS_EXPOSURE,
     ambient: 0.03,
     size: [2048, 1024],
   });
   const mars = new THREE.Mesh(sphere, marsMat);
+
+  /* ---- The landed ship's sun shadow: the hull alone (layer 1, no flames) is drawn into a
+     depth map from the sun, framed tightly round the ship; the Mars shader reads it ---- */
+  const SHADOW_RES = low ? 1024 : 2048;
+  const shadowRT = new THREE.WebGLRenderTarget(SHADOW_RES, SHADOW_RES, {
+    depthBuffer: true,
+    depthTexture: new THREE.DepthTexture(SHADOW_RES, SHADOW_RES),
+  });
+  const shadowCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.01, 10);
+  shadowCam.layers.set(1);
+  const shadowMat = new THREE.MeshBasicMaterial({ colorWrite: false, side: THREE.DoubleSide });
+  Object.assign(marsMat.uniforms, {
+    uShadowMap: { value: shadowRT.depthTexture },
+    uShadowMat: { value: new THREE.Matrix4() },
+    uPlanetMat: { value: new THREE.Matrix4() },
+    uShadowOn: { value: 0 },
+    uShadowSoft: { value: new THREE.Vector2(1 / SHADOW_RES, 0) },
+    uShadowRelief: { value: 0 },
+    uPool: { value: new THREE.Vector4(0, 0, 0, 1) },
+    uPoolI: { value: 0 },
+  });
   const marsAtmo = atmosphere('#ff9a6b', 1.018, 0.45, 2.6);
   mars.add(marsAtmo);
   scene.add(mars);
@@ -713,6 +741,10 @@ export function createHeroScene(canvas, { sites, dom, onArrive, textures = {}, q
   const landP = new THREE.Vector3();
   const hover = new THREE.Vector3();
   const landEnd = new THREE.Vector3();
+  const siteSun = new THREE.Vector3();
+  let landS1 = 0;
+  let landNear = 0;
+  let poolI = 0;
   const basis = new THREE.Matrix4();
   const bx = new THREE.Vector3();
   const bz = new THREE.Vector3();
@@ -876,6 +908,7 @@ export function createHeroScene(canvas, { sites, dom, onArrive, textures = {}, q
       // landed size: small against the planet (it read as tall as a moon at 0.14 R); the camera
       // comes closer instead, so the rocket still fills a good part of the frame
       const s1 = L.marsR * 0.03;
+      landS1 = s1;
       const desc = clamp01((T - 0.15) / 1.95);
       // eases in from a standstill (no jolt) and settles gently onto the ground
       const e = desc * desc * desc * (desc * (desc * 6 - 15) + 10);
@@ -895,6 +928,8 @@ export function createHeroScene(canvas, { sites, dom, onArrive, textures = {}, q
       rig.group.quaternion.copy(flight.q0).slerp(alignTo(landN, Z_AXIS, qB), smooth(clamp01(T / 1.6))); // an unhurried flip, engines down, blended into the descent
       // braking burn, throttling down as it touches down
       landThrust = smoothstep(0.15, 0.45, T) * lerp(0.9, 0.35, desc) * (1 - smoothstep(2.0, 2.15, T));
+      // warm light on the ground round the base: the braking burn, then the ship's floodlights
+      poolI = Math.max(landThrust * 1.1 * smoothstep(0.9, 1.6, T), 1.0 * smoothstep(1.6, 2.2, T));
       // entry through the thin air: the plasma glow peaks early, then the braking burn takes over
       const entry = smoothstep(0.2, 0.5, T) * (1 - smoothstep(0.95, 1.4, T));
       entryGlow.visible = entry > 0.01;
@@ -904,11 +939,13 @@ export function createHeroScene(canvas, { sites, dom, onArrive, textures = {}, q
       // shadow on the ground under the rocket: faint and wide high up, dark and tight at touchdown
       const height = Math.max(0, toMars.copy(rocketPos).sub(L.marsPos).length() - L.marsR);
       const near = 1 - Math.min(1, height / (L.marsR * 0.12));
+      landNear = near;
       groundShadow.visible = desc > 0.05;
       groundShadow.position.copy(landP).addScaledVector(landN, L.marsR * 0.0015);
       groundShadow.lookAt(w3.copy(groundShadow.position).add(landN));
-      groundShadow.scale.setScalar(s1 * (0.9 - 0.45 * near));
-      groundShadow.material.opacity = 0.15 + 0.6 * near;
+      // a tight contact shadow under the feet (the sun casts the real shadow)
+      groundShadow.scale.setScalar(s1 * (0.3 + 0.3 * (1 - near)));
+      groundShadow.material.opacity = 0.55 * near * near;
       // dust kicked up by the braking burn in the last metres, spreading as it thins
       const kick = smoothstep(1.55, 1.85, T) * (1 - smoothstep(2.05, 2.6, T));
       dustRing.visible = kick > 0.01;
@@ -944,11 +981,13 @@ export function createHeroScene(canvas, { sites, dom, onArrive, textures = {}, q
 
     // fly-in to a site
     let exit = 0;
+    let landLight = 0;
     const flyFade = 1; // the rocket stays in view all the way down
     if (flight) {
       const T = flight.t;
       const rot = clamp01(T / 0.85);
       const zoom = smooth(clamp01((T - 0.1) / 1.4));
+      landLight = zoom;
       exit = smooth(clamp01((T - 2.3) / 0.4));
       if (rot < 1) qTarget.copy(qSite.get(flight.id));
       // follow the rocket down to a low, side-on view with the horizon in frame
@@ -1033,6 +1072,20 @@ export function createHeroScene(canvas, { sites, dom, onArrive, textures = {}, q
     const presentation = v.copy(SUN_MARS_REF).lerp(SUN_MARS_DAY, arrive).normalize();
     const now = w3.copy(sunObjNow).applyQuaternion(qCur);
     sunWorld.copy(presentation).lerp(now, lightMix).normalize();
+    let exposure = MARS_EXPOSURE;
+    if (landLight > 0) {
+      // the sun comes in low from the left (and a touch from the camera's side), about 28°
+      // above the horizon at the site; the ground keeps its brightness (exposure makes up
+      // for the lower sun), so only the shadows and the relief change
+      const flatOld = Math.pow(Math.max(landN.dot(sunWorld), 0.05), 0.82);
+      v.set(-1, -0.2, 0);
+      v.addScaledVector(landN, -v.dot(landN)).normalize();
+      siteSun.copy(v).multiplyScalar(Math.cos(LAND_SUN_ELEV)).addScaledVector(landN, Math.sin(LAND_SUN_ELEV));
+      sunWorld.lerp(siteSun, landLight).normalize();
+      const flatNew = Math.pow(Math.max(landN.dot(sunWorld), 0.05), 0.82);
+      exposure *= Math.min(2, flatOld / flatNew);
+    }
+    marsMat.uniforms.uExposure.value = exposure;
     bodyUniforms(mars, marsMat, sunWorld);
     marsMat.uniforms.uAmbient.value = 0.03 + 0.11 * lightMix * choose;
     marsAtmo.material.uniforms.uSunWorld.value.copy(sunWorld);
@@ -1050,6 +1103,7 @@ export function createHeroScene(canvas, { sites, dom, onArrive, textures = {}, q
       sunWorld: rocketSun.copy(ROCKET_KEY).lerp(sunWorld, nearMars).normalize(),
       bounce: rocketBounce.copy(BOUNCE_EARTH).lerp(BOUNCE_MARS, nearMars),
       legs: flight ? smoothstep(1.15, 1.75, flight.t) : 0,
+      sunRim: landLight,
       camera,
       // smoke only in air: thick at launch from Earth, gone in space; a thin dust cloud in
       // Mars's air in the last metres of the landing
@@ -1061,6 +1115,37 @@ export function createHeroScene(canvas, { sites, dom, onArrive, textures = {}, q
     transfer.material.uniforms.uFade.value = fRocket * (1 - choose * 0.85);
     lunarRing.material.uniforms.uFade.value = fFar * (1 - smoothstep(0.3, 0.55, p));
     marsRing.material.uniforms.uFade.value = fFar * (0.35 + 0.65 * smoothstep(0.55, 0.85, p)) * (1 - choose * 0.4);
+
+    /* ---- Sun shadow of the ship on the ground (landing only) ---- */
+    // fades in as the ship comes down: from high up it would stretch a long streak across Mars
+    const shadowOn = flight ? landLight * smoothstep(0.2, 0.7, landNear) : 0;
+    marsMat.uniforms.uShadowOn.value = shadowOn;
+    marsMat.uniforms.uPoolI.value = flight ? poolI : 0;
+    if (shadowOn > 0.001) {
+      mars.updateMatrixWorld();
+      marsMat.uniforms.uPlanetMat.value.copy(mars.matrixWorld);
+      marsMat.uniforms.uPool.value.set(landP.x, landP.y, landP.z, landS1 * 1.6);
+      // craters bend the shadow's edge by up to ~8% of the ship's height
+      marsMat.uniforms.uShadowRelief.value = (landS1 / L.marsR) * 0.08;
+      // a box just round the ship as the sun sees it (the ship is rScale long)
+      const ext = rScale * 0.62;
+      shadowCam.left = shadowCam.bottom = -ext;
+      shadowCam.right = shadowCam.top = ext;
+      shadowCam.near = rScale * 1.5;
+      shadowCam.far = rScale * 14;
+      shadowCam.updateProjectionMatrix();
+      shadowCam.position.copy(rocketPos).addScaledVector(sunWorld, rScale * 4);
+      shadowCam.up.copy(landN);
+      shadowCam.lookAt(rocketPos);
+      shadowCam.updateMatrixWorld();
+      marsMat.uniforms.uShadowMat.value.multiplyMatrices(shadowCam.projectionMatrix, shadowCam.matrixWorldInverse);
+      marsMat.uniforms.uShadowSoft.value.set(1 / SHADOW_RES, (SHADOW_PENUMBRA * (shadowCam.far - shadowCam.near)) / (2 * ext));
+      scene.overrideMaterial = shadowMat;
+      renderer.setRenderTarget(shadowRT);
+      renderer.render(scene, shadowCam);
+      renderer.setRenderTarget(null);
+      scene.overrideMaterial = null;
+    }
 
     renderer.render(scene, camera);
 
@@ -1138,6 +1223,8 @@ export function createHeroScene(canvas, { sites, dom, onArrive, textures = {}, q
         if (o.geometry) o.geometry.dispose();
         if (o.material) o.material.dispose();
       });
+      shadowRT.dispose();
+      shadowMat.dispose();
       renderer.dispose();
     },
   };

@@ -390,6 +390,42 @@ void sphereUv(vec3 n){
 vec4 tex(sampler2D t, vec2 uv){ return textureGrad(t, uv, gDx, gDy); }
 
 #if defined(MARS)
+// Sun shadow of the landed ship. The ship alone is drawn into a small depth map from the sun
+// (the ground never is, so the ground can't shadow itself: no acne, and no depth bias that
+// would lift the shadow off the ship's feet).
+uniform sampler2D uShadowMap;
+uniform mat4 uShadowMat;     // world -> sun clip space
+uniform mat4 uPlanetMat;     // planet object -> world
+uniform float uShadowOn;
+uniform vec2 uShadowSoft;    // x: one shadow-map texel in uv, y: penumbra growth (uv per unit of light depth)
+uniform float uShadowRelief; // crater height used to bend the shadow over the terrain (object units)
+uniform vec4 uPool;          // engine light on the ground: world centre, radius
+uniform float uPoolI;
+const vec2 DISK[12] = vec2[12](
+  vec2(-0.326, -0.406), vec2(-0.840, -0.074), vec2(-0.696, 0.457), vec2(-0.203, 0.621),
+  vec2(0.962, -0.195), vec2(0.473, -0.480), vec2(0.519, 0.767), vec2(0.185, -0.893),
+  vec2(0.507, 0.064), vec2(0.896, 0.412), vec2(-0.322, -0.933), vec2(-0.792, -0.598));
+float ign(vec2 p){ return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }
+// 0 = full sun, 1 = full shade. Sharp at the ship's feet, a little softer far out
+// (penumbra grows with the distance from the ship along the sun's ray).
+float sunShadow(vec3 wp){
+  vec4 sc = uShadowMat * vec4(wp, 1.0);
+  vec3 s = sc.xyz / sc.w * 0.5 + 0.5;
+  if (s.x <= 0.0 || s.y <= 0.0 || s.x >= 1.0 || s.y >= 1.0 || s.z >= 1.0) return 0.0;
+  float blk = 0.0, nb = 0.0;
+  for (int i = 0; i < 8; i++) {
+    float d = texture2D(uShadowMap, s.xy + DISK[i] * uShadowSoft.x * 5.0).r;
+    if (d < s.z) { blk += d; nb += 1.0; }
+  }
+  if (nb < 0.5) return 0.0;
+  blk /= nb;
+  float r = uShadowSoft.x * 0.9 + (s.z - blk) * uShadowSoft.y;
+  float a = ign(gl_FragCoord.xy) * 6.2831853;
+  mat2 rot = mat2(cos(a), sin(a), -sin(a), cos(a));
+  float sum = 0.0;
+  for (int i = 0; i < 12; i++) sum += step(texture2D(uShadowMap, s.xy + rot * DISK[i] * r).r, s.z);
+  return sum / 12.0;
+}
 // Close-up surface detail for the landing: the 2K global map is only ~5 km a pixel, so near
 // the ground it went soft. Procedural terrain (fine relief and small craters), pinned to the
 // planet, fades in as the camera comes down and shades through the real map's colours.
@@ -449,9 +485,11 @@ void main(){
   // close-up detail: only when the camera is near the surface (altitude under ~1.4 radii)
   float alt = length(uCamObj) - 1.0;
   float detail = 1.0 - smoothstep(0.25, 1.4, alt);
+  float h = 0.5;
+  vec3 Nshade = Nb;
   if (detail > 0.001) {
     vec3 P = N * 260.0;
-    float h = surfaceHeight(P);
+    h = surfaceHeight(P);
     // bump from the height's screen-space slope (no extra texture lookups)
     vec3 dpdx = dFdx(vPos), dpdy = dFdy(vPos);
     float dhx = dFdx(h), dhy = dFdy(h);
@@ -459,6 +497,7 @@ void main(){
     float det = dot(dpdx, r1);
     vec3 grad = sign(det) * (dhx * r1 + dhy * r2);
     vec3 Nd = normalize(abs(det) * Nb - grad * 0.0028 * detail);
+    Nshade = Nd;
     ndl = dot(Nd, uSunObj);
     lit = max(ndl, 0.0) * smoothstep(-0.12, 0.12, ndlG);
     // dust and rock: brighter on high ground, darker in hollows, in the map's own colours
@@ -466,7 +505,24 @@ void main(){
   }
   // Dusty regolith scatters broadly: flatten the Lambert falloff a touch.
   float diff = pow(lit, 0.82);
-  vec3 col = albedo * diff * uExposure + albedo * uAmbient;
+  // the ship's shadow: looked up at the terrain's own height, so its edge dips into craters
+  // and climbs over their rims instead of lying flat on the sphere
+  float sh = 0.0;
+  vec3 wp = (uPlanetMat * vec4(N, 1.0)).xyz;
+  if (uShadowOn > 0.001) {
+    vec3 wpr = (uPlanetMat * vec4(N * (1.0 + (h - 0.5) * uShadowRelief * detail), 1.0)).xyz;
+    sh = sunShadow(wpr) * uShadowOn;
+  }
+  vec3 col = albedo * diff * uExposure * (1.0 - sh) + albedo * uAmbient;
+  // inside the shadow: cool skylight and light bounced off the sunlit dust, never black, with
+  // the craters still readable from their slopes
+  float flat0 = pow(max(ndlG, 0.0), 0.82) * uExposure;
+  col += albedo * vec3(0.25, 0.28, 0.37) * flat0 * (0.55 + 0.45 * max(dot(Nshade, N), 0.0)) * sh;
+  // warm engine light on the ground round the ship's base, on top of sun and shade alike
+  if (uPoolI > 0.001) {
+    float pd = length(wp - uPool.xyz) / uPool.w;
+    col += albedo * vec3(1.0, 0.74, 0.42) * uPoolI * exp(-pd * pd * 2.2) * (0.6 + 0.4 * max(dot(Nshade, N), 0.0));
+  }
   // Warm terminator band + faint dusty limb (Mars' atmosphere is thin).
   float term = exp(-pow(ndlG / 0.12, 2.0)) * 0.12;
   col += vec3(0.9, 0.45, 0.25) * term * albedo;

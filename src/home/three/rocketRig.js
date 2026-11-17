@@ -237,6 +237,7 @@ uniform vec3 uSunView;
 uniform vec3 uBounce;
 uniform float uFade;
 uniform float uThrust;
+uniform float uSunRim;
 varying vec3 vN;
 varying vec3 vV;
 varying vec4 vPaint;
@@ -294,6 +295,9 @@ void main(){
 
   // the engines light the bottom of the stack
   col += albedo * vec3(1.0, 0.55, 0.22) * uThrust * 0.6 * smoothstep(0.12, 0.0, vY);
+  // on the ground: a faint warm edge of sunlight along the sun-facing side, so the ship is
+  // plainly lit from where its shadow points away
+  col += sun * vec3(1.0, 0.9, 0.78) * pow(1.0 - NdV, 2.5) * smoothstep(0.0, 0.45, ndl) * 0.32 * uSunRim;
   // gentle shoulder so the brightest highlights roll off instead of clipping flat
   col = col / (1.0 + max(col - 0.85, 0.0) * 0.6);
   gl_FragColor = vec4(col * uFade, uFade);
@@ -351,6 +355,7 @@ export function createRocketRig({ quality = 'high' } = {}) {
   });
   const vehicle = new THREE.Mesh(vehicleGeo, vehicleMat);
   vehicle.frustumCulled = false;
+  vehicle.layers.enable(1); // casts the landing shadow (layer 1: hull only, no flames)
   body.add(vehicle);
 
   /* ---- Landing legs: four struts folded flat against the core, swung out for touchdown ---- */
@@ -373,6 +378,8 @@ export function createRocketRig({ quality = 'high' } = {}) {
     leg.add(foot);
     hinge.add(leg);
     body.add(hinge);
+    leg.layers.enable(1);
+    foot.layers.enable(1);
     legs.push(hinge);
   }
   const setLegs = (d) => {
@@ -489,7 +496,7 @@ export function createRocketRig({ quality = 'high' } = {}) {
     vertexShader: MODEL_VERTEX,
     fragmentShader: MODEL_FRAGMENT,
     side: THREE.DoubleSide, // open engine bells show their insides
-    uniforms: { uSunView: { value: new THREE.Vector3(0.6, 0.4, 0.7) }, uBounce: { value: new THREE.Color(0.07, 0.1, 0.16) }, uFade: { value: 1 }, uThrust: { value: 1 } },
+    uniforms: { uSunView: { value: new THREE.Vector3(0.6, 0.4, 0.7) }, uBounce: { value: new THREE.Color(0.07, 0.1, 0.16) }, uFade: { value: 1 }, uThrust: { value: 1 }, uSunRim: { value: 0 } },
   });
   let model = null;
   let disposed = false;
@@ -497,6 +504,7 @@ export function createRocketRig({ quality = 'high' } = {}) {
     if (disposed) { geo.dispose(); return; }
     model = new THREE.Mesh(geo, modelMat);
     model.frustumCulled = false;
+    model.layers.enable(1); // casts the landing shadow
     body.add(model);
     vehicle.visible = false;
     for (const h of legs) h.visible = false;
@@ -521,7 +529,7 @@ export function createRocketRig({ quality = 'high' } = {}) {
       plumeGeo.setDrawRange(0, Math.round(COUNT / 2 ** level))
     },
     /** Per-frame uniform writes only. */
-    update({ time, thrust, px, fade, sunWorld, camera, smoke = 1, legs: legDeploy = 0, bounce }) {
+    update({ time, thrust, px, fade, sunWorld, camera, smoke = 1, legs: legDeploy = 0, bounce, sunRim = 0 }) {
       setLegs(legDeploy);
       if (bounce) vehicleMat.uniforms.uBounce.value.copy(bounce);
       plumeMat.uniforms.uTime.value = time;
@@ -539,6 +547,7 @@ export function createRocketRig({ quality = 'high' } = {}) {
       vehicleMat.uniforms.uFade.value = fade;
       modelMat.uniforms.uFade.value = fade;
       modelMat.uniforms.uThrust.value = thrust;
+      modelMat.uniforms.uSunRim.value = sunRim;
       modelMat.transparent = fade < 0.999;
       if (bounce) modelMat.uniforms.uBounce.value.copy(bounce);
       vehicleMat.uniforms.uThrust.value = thrust;
