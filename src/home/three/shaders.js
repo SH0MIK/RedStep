@@ -436,26 +436,61 @@ float vnoise(vec3 x){
   return mix(mix(mix(h3(i), h3(i + vec3(1, 0, 0)), f.x), mix(h3(i + vec3(0, 1, 0)), h3(i + vec3(1, 1, 0)), f.x), f.y),
              mix(mix(h3(i + vec3(0, 0, 1)), h3(i + vec3(1, 0, 1)), f.x), mix(h3(i + vec3(0, 1, 1)), h3(i + vec3(1, 1, 1)), f.x), f.y), f.z);
 }
-// small bowl-shaped craters with raised rims, one per cell at most
-float craters(vec3 p){
+// Craters the way Mars has them: many small, few large (a power law), most of them old,
+// shallow and filled in with dust and sand (flat floors, worn rims), a few fresh, deep bowls
+// with sharp rims and a skirt of ejecta. gFloor collects how far into a crater floor we are,
+// so the floors can hold dark sand.
+float gFloor;
+float craterField(vec3 p, float density){
   vec3 i = floor(p), f = fract(p);
   float h = 0.0;
   for (int z = -1; z <= 1; z++) for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++) {
     vec3 c = vec3(float(x), float(y), float(z));
     vec3 cell = i + c;
-    float keep = step(0.62, h3(cell + 7.1));
+    if (h3(cell + 7.1) > density) continue;
     vec3 o = c + vec3(h3(cell), h3(cell + 3.3), h3(cell + 5.7)) - f;
-    float r = 0.18 + 0.3 * h3(cell + 9.2);
-    float d = length(o);
-    h += keep * (-0.9 * (1.0 - smoothstep(0.0, r, d)) * (1.0 - d / r * 0.6) + 0.45 * exp(-pow((d - r) / (0.16 * r), 2.0)));
+    float r = 0.16 + 0.28 * h3(cell + 9.2);
+    float d = length(o) / r;
+    if (d > 2.6) continue;
+    float fresh = pow(h3(cell + 11.4), 3.0);               // mostly old and worn
+    float depth = mix(0.3, 1.0, fresh);
+    float bowl = 1.0 - smoothstep(mix(0.55, 0.08, fresh), 1.0, d);  // old ones: flat, filled floors
+    float rim = exp(-pow((d - 1.0) / mix(0.32, 0.15, fresh), 2.0)) * mix(0.18, 0.4, fresh);
+    float ejecta = (1.0 - smoothstep(1.0, 2.6, d)) * step(1.0, d) * 0.07 * fresh;
+    h += depth * (-bowl + rim + ejecta);
+    gFloor = max(gFloor, bowl * (1.0 - fresh * 0.5));
   }
   return h;
 }
-float surfaceHeight(vec3 p){
-  float n = 0.0, a = 0.5;
-  vec3 q = p;
-  for (int k = 0; k < 6; k++) { n += a * vnoise(q); q = q * 2.07 + 1.3; a *= 0.5; }
-  return n * 0.8 + craters(p * 0.35) * 0.35 + craters(p * 1.3) * 0.18;
+// footprint fade: an octave whose features are smaller than a pixel or two is left out, so the
+// globe never turns grainy on the way in (fw: how far P moves across one pixel)
+float aaw(float freq, float fw){ return 1.0 - smoothstep(0.18, 0.5, fw * freq); }
+float surfaceHeight(vec3 p, float fw){
+  gFloor = 0.0;
+  // rolling ground and rubble
+  float n = 0.0, a = 0.5, fq = 0.12;
+  vec3 q = p * 0.12;
+  for (int k = 0; k < 7; k++) {
+    float w = aaw(fq, fw);
+    if (w <= 0.0) break;
+    n += a * (vnoise(q) - 0.5) * w;
+    q = q * 2.03 + 1.7; fq *= 2.03; a *= 0.52;
+  }
+  float h = n * 2.1;
+  // craters at four sizes: rare big ones, common small ones
+  h += craterField(p * 0.025, 0.3) * 1.6 * aaw(0.025, fw);
+  h += craterField(p * 0.085, 0.32) * 0.6 * aaw(0.085, fw);
+  float w3 = aaw(0.3, fw);
+  if (w3 > 0.0) h += craterField(p * 0.3, 0.38) * 0.2 * w3;
+  float w4 = aaw(1.0, fw);
+  if (w4 > 0.0) h += craterField(p * 1.0, 0.42) * 0.09 * w4;
+  // wind ripples in the sand, wandering a little, mostly on low ground and crater floors
+  float wr = aaw(0.6, fw);
+  if (wr > 0.0) {
+    float ph = dot(p, vec3(0.37, 0.52, 0.77)) * 3.8 + vnoise(p * 0.15) * 7.0;
+    h += (abs(sin(ph)) - 0.6) * 0.035 * wr * (0.35 + gFloor);
+  }
+  return h;
 }
 #endif
 
@@ -485,11 +520,17 @@ void main(){
   // close-up detail: only when the camera is near the surface (altitude under ~1.4 radii)
   float alt = length(uCamObj) - 1.0;
   float detail = 1.0 - smoothstep(0.25, 1.4, alt);
-  float h = 0.5;
+  float h = 0.0;
   vec3 Nshade = Nb;
+  // the global mosaic paints the dark regions blue-grey; real Mars's dark ground is grey-brown
+  // basalt, so warm just those blue-leaning pixels (more as the camera comes down)
+  float blue = smoothstep(-0.02, 0.06, albedo.b - albedo.r);
+  float lum0 = dot(albedo, vec3(0.3, 0.59, 0.11));
+  albedo = mix(albedo, lum0 * vec3(1.12, 0.92, 0.8), blue * mix(0.45, 0.8, detail));
   if (detail > 0.001) {
     vec3 P = N * 260.0;
-    h = surfaceHeight(P);
+    float fw = length(fwidth(P));
+    h = surfaceHeight(P, fw);
     // bump from the height's screen-space slope (no extra texture lookups)
     vec3 dpdx = dFdx(vPos), dpdy = dFdy(vPos);
     float dhx = dFdx(h), dhy = dFdy(h);
@@ -500,8 +541,18 @@ void main(){
     Nshade = Nd;
     ndl = dot(Nd, uSunObj);
     lit = max(ndl, 0.0) * smoothstep(-0.12, 0.12, ndlG);
-    // dust and rock: brighter on high ground, darker in hollows, in the map's own colours
-    albedo *= mix(1.0, 0.78 + 0.44 * clamp(h, 0.0, 1.0), detail * 0.75);
+    // Up close the global mosaic's dark regions read blue-grey; real Martian ground is rust
+    // dust over dark basalt sand. Keep the map's brightness, give it the ground's colours.
+    float lumA = dot(albedo, vec3(0.3, 0.59, 0.11));
+    vec3 dust = lumA * vec3(1.38, 0.9, 0.6);
+    vec3 sand = lumA * vec3(0.95, 0.72, 0.58);
+    // large patches of bright dust and dark sand, sand gathered on crater floors
+    float patchN = vnoise(P * 0.03) * 0.65 + vnoise(P * 0.11) * 0.35;
+    float sandy = clamp(smoothstep(0.4, 0.7, patchN) * 0.7 + gFloor * 0.55, 0.0, 1.0);
+    vec3 ground = mix(dust, sand * 0.78, sandy);
+    // worn rims and high ground catch a little more dust
+    ground *= 0.92 + 0.16 * clamp(h * 0.6 + 0.5, 0.0, 1.0);
+    albedo = mix(albedo, ground, detail * 0.8);
   }
   // Dusty regolith scatters broadly: flatten the Lambert falloff a touch.
   float diff = pow(lit, 0.82);
@@ -510,7 +561,7 @@ void main(){
   float sh = 0.0;
   vec3 wp = (uPlanetMat * vec4(N, 1.0)).xyz;
   if (uShadowOn > 0.001) {
-    vec3 wpr = (uPlanetMat * vec4(N * (1.0 + (h - 0.5) * uShadowRelief * detail), 1.0)).xyz;
+    vec3 wpr = (uPlanetMat * vec4(N * (1.0 + h * uShadowRelief * detail), 1.0)).xyz;
     sh = sunShadow(wpr) * uShadowOn;
   }
   vec3 col = albedo * diff * uExposure * (1.0 - sh) + albedo * uAmbient;
